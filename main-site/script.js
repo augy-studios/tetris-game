@@ -376,6 +376,7 @@
     paused = false;
     over = false;
     autoplay = false;
+    assisted = false;
     releaseAll();
     hideOverlay();
     announce("tetris:start", {});
@@ -445,11 +446,10 @@
      F2, left out of the controls list on purpose. Scores every spot the piece
      can reach with Pierre Dellacherie's features (weights from El-Tetris),
      also trying the hold piece, then walks the piece there one move at a
-     time, a move a frame, faster than any hand. Once it has run, no game in
-     this browser session is ranked, reloads included. */
+     time, a move a frame, faster than any hand. A game it ran in is not
+     ranked; the next game starts clean. */
 
   const AUTO_STEP = 16; // ms of play between its moves: about one a frame
-  const AUTO_USED = "uwutetris.autoplayed";
   const AUTO_WEIGHTS = {
     height: -4.500158825082766,
     cleared: 3.4181268101392694,
@@ -462,26 +462,15 @@
   const AUTO_TURNS = [[], [1], [1, 1], [-1]];
 
   let autoplay = false;
-  let assisted = false; // autoplay has run in this browser session
+  let assisted = false; // autoplay has run at some point this game
   let autoTarget = null; // { turns, x } for the piece in play
   let autoAt = 0;
-
-  try {
-    assisted = sessionStorage.getItem(AUTO_USED) === "1";
-  } catch {
-    // Storage blocked: remembered until the page is closed, then.
-  }
 
   function toggleAutoplay() {
     if (over) reset();
     autoplay = !autoplay;
     if (!autoplay) return;
     assisted = true;
-    try {
-      sessionStorage.setItem(AUTO_USED, "1");
-    } catch {
-      // Still held in memory for this page.
-    }
     autoTarget = null;
     autoAt = clock;
     releaseAll();

@@ -63,7 +63,7 @@ async function onOver(event) {
   say("");
 
   if (assisted) {
-    say("Autoplay was used this session, so this game is not ranked.");
+    say("Autoplay was used in this game, so it is not ranked.");
     return;
   }
 
