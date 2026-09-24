@@ -53,13 +53,19 @@ function finish(game) {
 async function onOver(event) {
   const game = current;
   if (!game) return;
-  game.stats = event.detail;
+  const { assisted, ...stats } = event.detail;
+  game.stats = stats;
 
   const prefs = getSettings();
   $("rankArea").hidden = false;
   $("nameInput").value = prefs.name ?? "";
   showForm(false);
   say("");
+
+  if (assisted) {
+    say("Autoplay was used this session, so this game is not ranked.");
+    return;
+  }
 
   const id = await game.id;
   if (game !== current) return;

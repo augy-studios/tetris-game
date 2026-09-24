@@ -176,11 +176,20 @@
     return collides({ ...cur, y: cur.y + 1 });
   }
 
+  // Just above the board, then straight into view when there is room, as the
+  // guideline does.
+  function spawnAt(type) {
+    const p = { type, r: 0, x: 3, y: -1 };
+    if (!collides(p) && !collides({ ...p, y: 0 })) p.y = 0;
+    return p;
+  }
+
   function spawn(type) {
-    cur = { type, r: 0, x: 3, y: -1 };
+    cur = spawnAt(type);
     landedAt = null;
     lockResets = 0;
     lastDrop = clock;
+    autoTarget = null;
     dirty = true;
     drawMinis();
 
@@ -188,8 +197,6 @@
       endGame(); // blocked out: no room for the new piece
       return;
     }
-    // Drop straight into view when there is room, as the guideline does.
-    if (!grounded()) cur.y++;
     lowestY = cur.y;
   }
 
@@ -262,22 +269,25 @@
     if (playing() && tryMove(dx, 0)) afterMove();
   }
 
-  function rotate(dir) {
-    if (!playing() || cur.type === "O") return;
-    const from = cur.r;
-    const to = (from + (dir > 0 ? 1 : 3)) % 4;
-    const kicks = (cur.type === "I" ? KICKS.I : KICKS.JLSTZ)[`${from}>${to}`];
-
+  // The piece turned with the SRS kicks, or null when every kick is blocked.
+  function rotated(p, dir) {
+    const to = (p.r + (dir > 0 ? 1 : 3)) % 4;
+    const kicks = (p.type === "I" ? KICKS.I : KICKS.JLSTZ)[`${p.r}>${to}`];
     for (const [kx, ky] of kicks) {
       // The kick tables have y pointing up; the board's y points down.
-      const test = { ...cur, r: to, x: cur.x + kx, y: cur.y - ky };
-      if (!collides(test)) {
-        cur = test;
-        dirty = true;
-        afterMove();
-        return;
-      }
+      const test = { ...p, r: to, x: p.x + kx, y: p.y - ky };
+      if (!collides(test)) return test;
     }
+    return null;
+  }
+
+  function rotate(dir) {
+    if (!playing() || cur.type === "O") return;
+    const next = rotated(cur, dir);
+    if (!next) return;
+    cur = next;
+    dirty = true;
+    afterMove();
   }
 
   function softDrop() {
@@ -348,6 +358,7 @@
     dropInterval = 1000;
     paused = false;
     over = false;
+    autoplay = false;
     releaseAll();
     hideOverlay();
     announce("tetris:start", {});
@@ -359,12 +370,13 @@
   function endGame() {
     over = true;
     paused = false;
+    autoplay = false;
     releaseAll();
     dirty = true;
     updateStats();
     showOverlay("over");
     syncPauseButton();
-    announce("tetris:over", { score, lines, level, pieces });
+    announce("tetris:over", { score, lines, level, pieces, assisted });
   }
 
   function setPaused(value) {
@@ -410,6 +422,167 @@
 
   function syncPauseButton() {
     if (pauseBtn) pauseBtn.setAttribute("aria-pressed", String(paused));
+  }
+
+  /* -- Autoplay --
+     F2, left out of the controls list on purpose. Scores every spot the piece
+     can reach with Pierre Dellacherie's features (weights from El-Tetris),
+     also trying the hold piece, then walks the piece there one move at a
+     time, a move a frame, faster than any hand. Once it has run, no game in
+     this browser session is ranked, reloads included. */
+
+  const AUTO_STEP = 16; // ms of play between its moves: about one a frame
+  const AUTO_USED = "uwutetris.autoplayed";
+  const AUTO_WEIGHTS = {
+    height: -4.500158825082766,
+    cleared: 3.4181268101392694,
+    rowTransitions: -3.2178882868487753,
+    colTransitions: -9.348695305445199,
+    holes: -7.899265427351652,
+    wells: -3.3855972247263626,
+  };
+  // Turns tried before sliding: none, right, twice right, left.
+  const AUTO_TURNS = [[], [1], [1, 1], [-1]];
+
+  let autoplay = false;
+  let assisted = false; // autoplay has run in this browser session
+  let autoTarget = null; // { turns, x } for the piece in play
+  let autoAt = 0;
+
+  try {
+    assisted = sessionStorage.getItem(AUTO_USED) === "1";
+  } catch {
+    // Storage blocked: remembered until the page is closed, then.
+  }
+
+  function toggleAutoplay() {
+    if (over) reset();
+    autoplay = !autoplay;
+    if (!autoplay) return;
+    assisted = true;
+    try {
+      sessionStorage.setItem(AUTO_USED, "1");
+    } catch {
+      // Still held in memory for this page.
+    }
+    autoTarget = null;
+    autoAt = clock;
+    releaseAll();
+    setPaused(false);
+  }
+
+  // How good the board looks with p locked where it is. Higher is better.
+  function evaluate(p) {
+    const cells = cellsOf(p);
+    if (cells.some(([, y]) => y < 0)) return -Infinity; // would lock out
+    const grid = board.map((row) => row.map((c) => c !== ""));
+    for (const [x, y] of cells) grid[y][x] = true;
+
+    let cleared = 0;
+    for (let y = ROWS - 1; y >= 0; y--) {
+      if (grid[y].every(Boolean)) {
+        grid.splice(y, 1);
+        cleared++;
+      }
+    }
+    for (let i = 0; i < cleared; i++) grid.unshift(Array(COLS).fill(false));
+
+    const ys = cells.map(([, y]) => y);
+    const height = ROWS - (Math.min(...ys) + Math.max(...ys) + 1) / 2;
+
+    // Walls and floor count as filled; the sky above does not.
+    let rowTransitions = 0;
+    for (let y = 0; y < ROWS; y++) {
+      let prev = true;
+      for (let x = 0; x < COLS; x++) {
+        if (grid[y][x] !== prev) rowTransitions++;
+        prev = grid[y][x];
+      }
+      if (!prev) rowTransitions++;
+    }
+
+    let colTransitions = 0;
+    let holes = 0;
+    let wells = 0;
+    for (let x = 0; x < COLS; x++) {
+      let prev = false;
+      let covered = false;
+      let depth = 0;
+      for (let y = 0; y < ROWS; y++) {
+        const filled = grid[y][x];
+        if (filled !== prev) colTransitions++;
+        prev = filled;
+        if (filled) covered = true;
+        else if (covered) holes++;
+
+        const walled = (x === 0 || grid[y][x - 1]) && (x === COLS - 1 || grid[y][x + 1]);
+        if (!filled && walled) wells += ++depth;
+        else depth = 0;
+      }
+      if (!prev) colTransitions++;
+    }
+
+    const w = AUTO_WEIGHTS;
+    return (
+      w.height * height +
+      w.cleared * cleared +
+      w.rowTransitions * rowTransitions +
+      w.colTransitions * colTransitions +
+      w.holes * holes +
+      w.wells * wells
+    );
+  }
+
+  // The best spot reachable by turning in place, sliding, then dropping.
+  function bestPlacement(start) {
+    let best = null;
+    for (const turns of start.type === "O" ? [[]] : AUTO_TURNS) {
+      let p = start;
+      for (const dir of turns) p = p && rotated(p, dir);
+      if (!p || collides(p)) continue;
+
+      const xs = [p.x];
+      for (let x = p.x - 1; !collides({ ...p, x }); x--) xs.push(x);
+      for (let x = p.x + 1; !collides({ ...p, x }); x++) xs.push(x);
+
+      for (const x of xs) {
+        const q = { ...p, x };
+        while (!collides({ ...q, y: q.y + 1 })) q.y++;
+        const score = evaluate(q);
+        if (!best || score > best.score) best = { turns, x, score };
+      }
+    }
+    return best;
+  }
+
+  // One move toward the chosen spot. Anything in the way (gravity can move
+  // the piece between moves) means choosing again from where it is.
+  function autoStep() {
+    if (!autoTarget) {
+      const here = bestPlacement(cur);
+      const other = canHold ? hold ?? queue[0] : null;
+      const there = other && other !== cur.type ? bestPlacement(spawnAt(other)) : null;
+      if (there && (!here || there.score > here.score)) {
+        holdPiece();
+        return;
+      }
+      if (!here) {
+        hardDrop();
+        return;
+      }
+      autoTarget = { turns: [...here.turns], x: here.x };
+    }
+
+    const { r, x } = cur;
+    if (autoTarget.turns.length) {
+      rotate(autoTarget.turns.shift());
+      if (cur.r === r) autoTarget = null;
+    } else if (x !== autoTarget.x) {
+      move(Math.sign(autoTarget.x - x));
+      if (cur.x === x) autoTarget = null;
+    } else {
+      hardDrop();
+    }
   }
 
   /* -- Drawing -- */
@@ -592,6 +765,10 @@
     if (playing()) {
       clock += dt;
       step();
+      if (autoplay && playing() && clock - autoAt >= AUTO_STEP) {
+        autoAt = clock;
+        autoStep();
+      }
     }
     if (dirty) draw();
     requestAnimationFrame(loop);
@@ -622,7 +799,11 @@
     shiftDir = 0;
   }
 
+  const MOVES = new Set(["left", "right", "soft", "hard", "cw", "ccw", "hold"]);
+
   function press(action) {
+    // Playing a move by hand takes over from autoplay.
+    if (autoplay && MOVES.has(action)) autoplay = false;
     switch (action) {
       case "left":
         held.add("left");
@@ -658,6 +839,9 @@
         break;
       case "reset":
         reset();
+        break;
+      case "autoplay":
+        toggleAutoplay();
         break;
     }
   }
@@ -703,6 +887,7 @@
     p: "pause",
     Escape: "pause",
     r: "reset",
+    F2: "autoplay",
   };
   const CODE_ACTIONS = { KeyX: "cw", KeyZ: "ccw", KeyC: "hold", KeyP: "pause", KeyR: "reset" };
 
