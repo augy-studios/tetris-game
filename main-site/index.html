@@ -22,14 +22,37 @@
     <meta charset="utf-8">
     <title>Tetris Game | UwU Apps</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A simple tetris app; view live tetris at a glance!">
+    <meta name="description" content="Play Tetris free in your browser, with hold, a ghost piece, a five piece preview and touch controls. Light, dark or time-based theme, and it keeps working offline.">
 
     <meta property="og:type" content="website">
     <meta property="og:title" content="Tetris Game | UwU Apps" />
     <meta property="og:site_name" content="UwU Apps" />
-    <meta property="og:description" content="A simple tetris app; view live tetris at a glance!" />
+    <meta property="og:description" content="Play Tetris free in your browser, with hold, a ghost piece, a five piece preview and touch controls. Light, dark or time-based theme, and it keeps working offline." />
+    <meta property="og:url" content="https://xyz.uwuapps.org/" />
 
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Jua">
+    <!-- Theme before first paint. Keep the key in step with APP_KEY in js/theme.js. -->
+    <script>
+        (function () {
+            var k = "uwutetris";
+            var m = localStorage.getItem(k + ".mode") || "light";
+
+            // Time based mode. Resolved here rather than in theme.js because
+            // theme.js runs after first paint, and an evening reader would
+            // otherwise watch a white page turn dark. Keep the two hours in step
+            // with LIGHT_FROM_HOUR and LIGHT_UNTIL_HOUR in theme.js.
+            document.documentElement.setAttribute("data-mode-preference", m);
+            if (m === "time") {
+                var h = new Date().getHours();
+                m = h >= 9 && h < 18 ? "light" : "dark";
+            }
+
+            var c = localStorage.getItem(k + ".colorTheme") || "classic";
+            document.documentElement.setAttribute("data-mode", m);
+            document.documentElement.setAttribute("data-color-theme", c);
+        })();
+    </script>
+
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
     <link rel="stylesheet" href="/style.css">
     <meta name="theme-color" content="#ccffcc" />
 
@@ -40,22 +63,113 @@
     <meta name="twitter:card" content="summary">
     <meta name="twitter:image:src" content="/XTT-main.png">
     <meta property="og:image" content="/XTT-main.png" />
-
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
-    <script defer="" src="https://use.fontawesome.com/releases/v6.5.2/js/all.js"></script>
 </head>
 
 <body>
-    Tetris Game
+    <header class="topbar">
+        <h1 class="app-title">Tetris Game</h1>
+        <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme">
+            <span data-icon="sun"></span>
+        </button>
+    </header>
+
+    <main class="game">
+        <section class="board-wrap" id="boardWrap">
+            <div class="board-frame glass">
+                <canvas id="board" width="300" height="600" role="img" aria-label="Tetris board"></canvas>
+
+                <div class="board-overlay hidden" id="boardOverlay">
+                    <div class="overlay-panel" role="status">
+                        <p class="overlay-title" id="overlayTitle">Paused</p>
+                        <p class="overlay-sub" id="overlaySub" hidden></p>
+                        <div class="overlay-actions">
+                            <button class="btn btn-primary" type="button" id="overlayPrimary" data-game-act="resume">Resume</button>
+                            <button class="btn btn-quiet" type="button" id="overlaySecondary" data-game-act="reset">Restart</button>
+                        </div>
+                        <p class="overlay-hint kbd-hint" id="overlayHint">Press P to resume.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <aside class="side">
+            <section class="card glass stats-card" aria-label="Stats">
+                <div class="stat stat-score">
+                    <p class="card-title">Score</p>
+                    <p class="stat-val" id="score">0</p>
+                </div>
+                <div class="stat">
+                    <p class="card-title">Level</p>
+                    <p class="stat-val" id="level">1</p>
+                </div>
+                <div class="stat">
+                    <p class="card-title">Lines</p>
+                    <p class="stat-val" id="lines">0</p>
+                </div>
+            </section>
+
+            <section class="card glass hold-card">
+                <h2 class="card-title">Hold</h2>
+                <canvas class="mini" id="hold" role="img" aria-label="Hold: empty"></canvas>
+            </section>
+
+            <section class="card glass next-card">
+                <h2 class="card-title">Next</h2>
+                <div class="next-list" id="next" role="img" aria-label="Next pieces">
+                    <canvas class="mini"></canvas>
+                    <canvas class="mini"></canvas>
+                    <canvas class="mini"></canvas>
+                    <canvas class="mini"></canvas>
+                    <canvas class="mini"></canvas>
+                </div>
+            </section>
+
+            <section class="card glass controls-card">
+                <h2 class="card-title">Controls</h2>
+                <ul class="legend">
+                    <li><kbd class="kbd">←</kbd> <kbd class="kbd">→</kbd> move</li>
+                    <li><kbd class="kbd">↓</kbd> soft drop, <kbd class="kbd">Space</kbd> hard drop</li>
+                    <li><kbd class="kbd">↑</kbd> or <kbd class="kbd">X</kbd> rotate right, <kbd class="kbd">Z</kbd> rotate left</li>
+                    <li><kbd class="kbd">C</kbd> or <kbd class="kbd">Shift</kbd> hold</li>
+                    <li><kbd class="kbd">P</kbd> or <kbd class="kbd">Esc</kbd> pause, <kbd class="kbd">R</kbd> restart</li>
+                </ul>
+            </section>
+        </aside>
+
+        <div class="pad" role="group" aria-label="Touch controls">
+            <button class="pad-btn" type="button" data-act="hold">Hold</button>
+            <button class="pad-btn" type="button" data-act="ccw" aria-label="Rotate left"><span data-icon="rotateCcw"></span></button>
+            <button class="pad-btn" type="button" data-act="cw" aria-label="Rotate right"><span data-icon="rotateCw"></span></button>
+            <button class="pad-btn" type="button" data-act="pause" aria-label="Pause" aria-pressed="false"><span data-icon="pause"></span></button>
+            <button class="pad-btn" type="button" data-act="left" aria-label="Move left"><span data-icon="chevronLeft"></span></button>
+            <button class="pad-btn" type="button" data-act="soft" aria-label="Soft drop"><span data-icon="chevronDown"></span></button>
+            <button class="pad-btn" type="button" data-act="right" aria-label="Move right"><span data-icon="chevronRight"></span></button>
+            <button class="pad-btn" type="button" data-act="hard" aria-label="Hard drop"><span data-icon="hardDrop"></span></button>
+        </div>
+    </main>
+
+    <div class="modal-backdrop hidden" id="themeModal">
+        <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="themeModalTitle">
+            <div class="modal-head">
+                <h2 id="themeModalTitle">Theme</h2>
+                <button class="icon-btn small" type="button" data-close-modal="themeModal" aria-label="Close">
+                    <span data-icon="close"></span>
+                </button>
+            </div>
+            <p class="modal-section-label">Mode</p>
+            <div class="mode-toggle" id="modeToggle">
+                <button class="mode-btn" type="button" data-mode="light" aria-pressed="false"><span data-icon="sun"></span>Light</button>
+                <button class="mode-btn" type="button" data-mode="dark" aria-pressed="false"><span data-icon="moon"></span>Dark</button>
+                <button class="mode-btn mode-btn-wide" type="button" data-mode="time" aria-pressed="false"><span data-icon="clock"></span>Time-based</button>
+            </div>
+            <p class="mode-note" id="modeNote" hidden></p>
+            <p class="modal-section-label">Brand colour</p>
+            <div class="swatch-grid" id="swatchGrid"></div>
+        </div>
+    </div>
 
     <script src="/script.js"></script>
-
-    <script>
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.register('/sw.js');
-        }
-    </script>
-    
+    <script type="module" src="/js/app.js"></script>
 </body>
 
 </html>

@@ -1,7 +1,7 @@
 {
     "name": "Tetris Game by UwU Apps",
     "short_name": "Tetris Game",
-    "description": "A simple tetris app; view live tetris at a glance!",
+    "description": "Play Tetris free in your browser, with hold, a ghost piece, a five piece preview and touch controls. Light, dark or time-based theme, and it keeps working offline.",
     "icons": [{
             "src": "XTT-192.png",
             "type": "image/png",
