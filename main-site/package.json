@@ -1,0 +1,10 @@
+{
+  "name": "uwutetris",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Tetris Game: the PWA and the leaderboard API, deployed on Vercel.",
+  "engines": {
+    "node": ">=18"
+  }
+}

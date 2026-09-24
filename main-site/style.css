@@ -274,6 +274,19 @@ body.modal-open { overflow: hidden; }
 /* Author display rules (.btn, .overlay-sub) would otherwise beat [hidden]. */
 [hidden] { display: none !important; }
 
+:root[data-mode="dark"] { color-scheme: dark; }
+
+h1, h2 { font-weight: normal; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 :focus-visible {
   outline: 2px solid var(--brand-ink);
   outline-offset: 2px;
@@ -296,6 +309,117 @@ body.modal-open { overflow: hidden; }
 .btn-primary { background: var(--brand-fill); color: var(--on-brand); }
 .btn-primary:hover { background: var(--brand-fill-strong); }
 .btn-quiet { background: var(--surface-strong); color: var(--ink); }
+.btn span { display: inline-flex; margin-right: 6px; }
+.btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.pill { border-radius: 999px; }
+
+/* Text fields: the leaderboard name, on the game over screen and in settings. */
+.name-form {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.field {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: var(--surface-strong);
+  /* 3:1 against the card, as a field's edge must be. */
+  border: 1px solid color-mix(in srgb, var(--ink) 45%, transparent);
+  color: var(--ink);
+  font-size: 1rem;
+}
+.field::placeholder { color: var(--muted-strong); opacity: 1; }
+
+/* ---- settings modal ---- */
+.saved-name {
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+.clear-name { align-self: flex-start; }
+
+.setting-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--surface-border);
+  font-size: 0.9rem;
+  color: var(--ink);
+  text-align: left;
+}
+.setting-toggle > span:first-child { flex: 1; }
+.switch-state {
+  font-size: 0.8rem;
+  color: var(--muted-strong);
+}
+.switch {
+  position: relative;
+  flex-shrink: 0;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--surface-strong);
+  border: 1px solid color-mix(in srgb, var(--ink) 45%, transparent);
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--muted-strong);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.setting-toggle[aria-checked="true"] .switch {
+  background: var(--brand-ink);
+  border-color: var(--brand-ink);
+}
+.setting-toggle[aria-checked="true"] .switch::after {
+  background: var(--bg);
+  transform: translateX(16px);
+}
+
+/* ---- leaderboard modal ---- */
+.board-body {
+  min-height: 120px;
+  max-height: 50vh;
+  overflow-y: auto;
+  transition: opacity 0.15s ease;
+}
+.board-body[aria-busy="true"] { opacity: 0.6; }
+.board-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+.board-table th {
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: normal;
+  font-size: 0.8rem;
+  color: var(--muted-strong);
+}
+.board-table td {
+  padding: 7px 8px;
+  border-top: 1px solid var(--surface-border);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.board-table th:first-child,
+.board-table td:first-child { width: 2.5em; color: var(--muted-strong); }
+.board-empty {
+  padding: 32px 8px;
+  text-align: center;
+  color: var(--muted-strong);
+}
 
 /* ==========================================================================
    Update prompt bar (update-bar-spec.md). Collapses through a 0fr grid row
@@ -389,10 +513,30 @@ body.modal-open { overflow: hidden; }
   margin: 0 auto;
   padding: 14px;
 }
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.brand-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+}
 .app-title {
   font-size: 1.3rem;
-  font-weight: 400;
   color: var(--brand-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
 }
 
 .game {
@@ -470,6 +614,22 @@ body.modal-open { overflow: hidden; }
   margin-top: 4px;
 }
 .overlay-hint { font-size: 0.85rem; color: var(--muted); }
+
+/* Game over: add the game to the leaderboard. */
+.overlay-panel { width: 100%; max-width: 280px; }
+.rank-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.rank-area .name-form .btn { padding: 8px 12px; }
+.rank-msg {
+  font-size: 0.85rem;
+  color: var(--ink);
+}
+.rank-msg:empty { display: none; }
 
 /* ---- side column ---- */
 .side {
@@ -578,7 +738,10 @@ body.modal-open { overflow: hidden; }
 /* ---- phones ---- */
 @media (max-width: 480px) {
   .topbar { padding: 10px; }
+  .brand { gap: 8px; }
+  .brand-icon { width: 28px; height: 28px; border-radius: 7px; }
   .app-title { font-size: 1.15rem; }
+  .topbar-actions { gap: 6px; }
 
   .game {
     --side-w: 84px;

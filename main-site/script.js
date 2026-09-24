@@ -125,6 +125,7 @@
   let score = 0;
   let lines = 0;
   let level = 1;
+  let pieces = 0; // locked this game; the leaderboard checks the score against it
   let dropInterval = 1000;
   let paused = false;
   let over = false;
@@ -192,6 +193,7 @@
   }
 
   function lock() {
+    pieces++;
     let above = false;
     for (const [x, y] of cellsOf(cur)) {
       if (y < 0) above = true;
@@ -323,6 +325,15 @@
 
   /* -- Game state -- */
 
+  // js/ranked.js listens for these to rank the game. It is a module, so it
+  // loads after this script has started the first game; holding events until
+  // DOMContentLoaded means it still hears that one.
+  function announce(name, detail) {
+    const send = () => document.dispatchEvent(new CustomEvent(name, { detail }));
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", send, { once: true });
+    else send();
+  }
+
   function reset() {
     board.forEach((row) => row.fill(""));
     bag = [];
@@ -332,11 +343,13 @@
     score = 0;
     lines = 0;
     level = 1;
+    pieces = 0;
     dropInterval = 1000;
     paused = false;
     over = false;
     releaseAll();
     hideOverlay();
+    announce("tetris:start", {});
     spawn(takeNext());
     updateStats();
     syncPauseButton();
@@ -350,6 +363,7 @@
     updateStats();
     showOverlay("over");
     syncPauseButton();
+    announce("tetris:over", { score, lines, level, pieces });
   }
 
   function setPaused(value) {
@@ -704,9 +718,14 @@
     );
   }
 
+  // Typing a leaderboard name is not playing: R in a name must not restart.
+  function typing(e) {
+    return e.target instanceof Element && (e.target.closest("input, textarea, select") !== null || e.target.isContentEditable);
+  }
+
   window.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
-    if (document.body.classList.contains("modal-open") || meantForControl(e)) return;
+    if (document.body.classList.contains("modal-open") || typing(e) || meantForControl(e)) return;
 
     const action = actionFor(e);
     if (!action) return;
@@ -736,7 +755,11 @@
     btn.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
       e.preventDefault(); // no focus ring, no text selection, no double-tap zoom
-      btn.setPointerCapture?.(e.pointerId);
+      try {
+        btn.setPointerCapture(e.pointerId);
+      } catch {
+        // The pointer is already gone; the press still counts.
+      }
       btn.classList.add("pressed");
       press(action);
     });

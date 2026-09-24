@@ -1,9 +1,13 @@
-// Page wiring: the theme modal (uwuapps-theme.md, section 6) and the update
-// bar. The game itself lives in /script.js and only reads the theme tokens.
+// Page wiring: the theme modal (uwuapps-theme.md, section 6), settings, the
+// leaderboards and the update bar. The game itself lives in /script.js; it
+// reads the theme tokens and announces each game's start and end.
 
 import { COLOR_THEMES, applyColorTheme, applyMode, getStoredColorTheme, getStoredMode, getModePreference, initTheme } from "./theme.js";
-import { hydrateIcons, openModal, closeModal } from "./ui.js";
+import { hydrateIcons, openModal, closeModal, closeTopModal } from "./ui.js";
 import { initUpdateBar } from "./update.js";
+import { initSettings } from "./settings.js";
+import { initLeaderboard } from "./leaderboard.js";
+import { initRanked } from "./ranked.js";
 
 function buildThemeModal() {
   const grid = document.getElementById("swatchGrid");
@@ -67,46 +71,33 @@ function updateThemeButtonIcon() {
   hydrateIcons(document.getElementById("themeBtn"));
 }
 
-// Focus goes into the dialog on open and back to its trigger on close, and
-// Escape closes it. The game pauses its input while body.modal-open is set.
+// Every modal: close button, backdrop click and Escape. ui.js moves focus in
+// on open and back to the opener on close. The game holds still while
+// body.modal-open is set.
 function wireModals() {
-  const themeBtn = document.getElementById("themeBtn");
-
-  const close = (id) => {
-    closeModal(id);
-    if (id === "themeModal") themeBtn.focus();
-  };
-
   document.querySelectorAll("[data-close-modal]").forEach((btn) => {
-    btn.addEventListener("click", () => close(btn.dataset.closeModal));
+    btn.addEventListener("click", () => closeModal(btn.dataset.closeModal));
   });
   document.querySelectorAll(".modal-backdrop").forEach((backdrop) => {
     backdrop.addEventListener("click", (e) => {
-      if (e.target === backdrop) close(backdrop.id);
+      if (e.target === backdrop) closeModal(backdrop.id);
     });
   });
-  themeBtn.addEventListener("click", () => {
-    openModal("themeModal");
-    document.querySelector("#themeModal [data-close-modal]").focus();
-  });
-
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape") return;
-    const open = document.querySelector(".modal-backdrop:not(.hidden)");
-    if (!open) return;
     // Handled here, so the game does not read the same Escape as "pause".
-    e.preventDefault();
-    close(open.id);
+    if (e.key === "Escape" && closeTopModal()) e.preventDefault();
   });
 }
 
 function boot() {
+  wireModals();
+  document.getElementById("themeBtn").addEventListener("click", () => openModal("themeModal"));
+
   try {
     initTheme();
     hydrateIcons();
     updateThemeButtonIcon();
     buildThemeModal();
-    wireModals();
   } catch (cause) {
     // Storage blocked outright (some privacy settings throw on localStorage).
     // The page still renders light + classic from the stylesheet defaults.
@@ -114,6 +105,9 @@ function boot() {
     hydrateIcons();
   }
 
+  initSettings();
+  initLeaderboard();
+  initRanked();
   initUpdateBar();
 }
 

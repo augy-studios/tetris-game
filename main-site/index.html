@@ -67,10 +67,21 @@
 
 <body>
     <header class="topbar">
-        <h1 class="app-title">Tetris Game</h1>
-        <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme">
-            <span data-icon="sun"></span>
-        </button>
+        <div class="brand">
+            <img class="brand-icon" src="/XTT-main.png" alt="" width="32" height="32">
+            <h1 class="app-title">Tetris Game</h1>
+        </div>
+        <div class="topbar-actions">
+            <button class="icon-btn" id="boardBtn" type="button" aria-label="Leaderboard">
+                <span data-icon="trophy"></span>
+            </button>
+            <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings">
+                <span data-icon="settings"></span>
+            </button>
+            <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme">
+                <span data-icon="sun"></span>
+            </button>
+        </div>
     </header>
 
     <main class="game">
@@ -79,9 +90,26 @@
                 <canvas id="board" width="300" height="600" role="img" aria-label="Tetris board"></canvas>
 
                 <div class="board-overlay hidden" id="boardOverlay">
-                    <div class="overlay-panel" role="status">
-                        <p class="overlay-title" id="overlayTitle">Paused</p>
-                        <p class="overlay-sub" id="overlaySub" hidden></p>
+                    <div class="overlay-panel">
+                        <div role="status">
+                            <p class="overlay-title" id="overlayTitle">Paused</p>
+                            <p class="overlay-sub" id="overlaySub" hidden></p>
+                        </div>
+
+                        <!-- Game over only; js/ranked.js fills it in. -->
+                        <div class="rank-area" id="rankArea" hidden>
+                            <form class="name-form" id="submitForm" autocomplete="off" hidden>
+                                <label for="nameInput" class="visually-hidden">Leaderboard name</label>
+                                <input id="nameInput" class="field" type="text" placeholder="Your name" maxlength="20"
+                                    autocomplete="nickname" spellcheck="false" enterkeyhint="done">
+                                <button id="submitBtn" class="btn btn-primary" type="submit">Add</button>
+                            </form>
+                            <p id="rankMsg" class="rank-msg" role="status" aria-live="polite"></p>
+                            <button id="overlayBoardBtn" class="btn btn-quiet" type="button">
+                                <span data-icon="trophy"></span>Leaderboard
+                            </button>
+                        </div>
+
                         <div class="overlay-actions">
                             <button class="btn btn-primary" type="button" id="overlayPrimary" data-game-act="resume">Resume</button>
                             <button class="btn btn-quiet" type="button" id="overlaySecondary" data-game-act="reset">Restart</button>
@@ -165,6 +193,59 @@
             <p class="mode-note" id="modeNote" hidden></p>
             <p class="modal-section-label">Brand colour</p>
             <div class="swatch-grid" id="swatchGrid"></div>
+        </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="boardModal">
+        <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="boardModalTitle">
+            <div class="modal-head">
+                <h2 id="boardModalTitle">Leaderboard</h2>
+                <button class="icon-btn small" type="button" data-close-modal="boardModal" aria-label="Close">
+                    <span data-icon="close"></span>
+                </button>
+            </div>
+            <div class="mode-toggle" id="boardTabs" role="tablist" aria-label="Board">
+                <button class="mode-btn" type="button" role="tab" data-board="best" aria-selected="true" aria-controls="boardBody">Best score</button>
+                <button class="mode-btn" type="button" role="tab" data-board="total" aria-selected="false" aria-controls="boardBody">Total points</button>
+            </div>
+            <div id="boardBody" class="board-body" role="tabpanel"></div>
+            <p id="boardNote" class="mode-note"></p>
+            <p class="mode-note">Anyone who picks the same name shares its entry.</p>
+        </div>
+    </div>
+
+    <div class="modal-backdrop hidden" id="settingsModal">
+        <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+            <div class="modal-head">
+                <h2 id="settingsModalTitle">Settings</h2>
+                <button class="icon-btn small" type="button" data-close-modal="settingsModal" aria-label="Close">
+                    <span data-icon="close"></span>
+                </button>
+            </div>
+
+            <p class="modal-section-label">Leaderboard name</p>
+            <p id="savedName" class="saved-name"></p>
+            <form id="nameForm" class="name-form" autocomplete="off">
+                <label for="settingsName" class="visually-hidden">New leaderboard name</label>
+                <input id="settingsName" class="field" type="text" placeholder="New name" maxlength="20"
+                    autocomplete="nickname" spellcheck="false" enterkeyhint="done">
+                <button id="saveNameBtn" class="btn btn-primary" type="submit">Save</button>
+            </form>
+            <p id="nameMsg" class="mode-note" role="status" aria-live="polite"></p>
+            <button id="clearNameBtn" class="btn btn-quiet pill clear-name" type="button" hidden>Clear name</button>
+
+            <p class="modal-section-label">Games</p>
+            <button class="setting-toggle" type="button" role="switch" aria-checked="false" data-setting="auto_submit">
+                <span>Add finished games automatically</span>
+                <span class="switch-state"></span><span class="switch" aria-hidden="true"></span>
+            </button>
+            <p id="autoNote" class="mode-note">Save a name first to add games automatically.</p>
+
+            <p class="mode-note">
+                The leaderboard name is filled in whenever you add a game, so it is always the last one you used.
+                With automatic adding on, every finished game goes on the leaderboard under it. Games played
+                offline are not ranked. Settings are kept in this browser.
+            </p>
         </div>
     </div>
 
