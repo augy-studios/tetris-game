@@ -22,12 +22,12 @@
     <meta charset="utf-8">
     <title>Tetris Game | UwU Apps</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Play Tetris free in your browser, with hold, a ghost piece, a five piece preview and touch controls. Light, dark or time-based theme, and it keeps working offline.">
+    <meta name="description" content="Play Tetris free on your phone or computer, with touch controls, hold and a ghost piece. Climb the best score and total points leaderboards, and play offline.">
 
     <meta property="og:type" content="website">
     <meta property="og:title" content="Tetris Game | UwU Apps" />
     <meta property="og:site_name" content="UwU Apps" />
-    <meta property="og:description" content="Play Tetris free in your browser, with hold, a ghost piece, a five piece preview and touch controls. Light, dark or time-based theme, and it keeps working offline." />
+    <meta property="og:description" content="Play Tetris free on your phone or computer, with touch controls, hold and a ghost piece. Climb the best score and total points leaderboards, and play offline." />
     <meta property="og:url" content="https://xyz.uwuapps.org/" />
 
     <!-- Theme before first paint. Keep the key in step with APP_KEY in js/theme.js. -->
@@ -88,6 +88,9 @@
         <section class="board-wrap" id="boardWrap">
             <div class="board-frame glass">
                 <canvas id="board" width="300" height="600" role="img" aria-label="Tetris board"></canvas>
+                <p class="gesture-hint hidden" id="gestureHint" aria-hidden="true">
+                    Drag to move, tap to rotate. Flick down to drop, flick up to hold.
+                </p>
 
                 <div class="board-overlay hidden" id="boardOverlay">
                     <div class="overlay-panel">
@@ -115,6 +118,9 @@
                             <button class="btn btn-quiet" type="button" id="overlaySecondary" data-game-act="reset">Restart</button>
                         </div>
                         <p class="overlay-hint kbd-hint" id="overlayHint">Press P to resume.</p>
+                        <p class="overlay-hint touch-hint" id="overlayTouchHint">
+                            On the board: drag to move, tap to rotate. Flick down to drop, flick up to hold.
+                        </p>
                     </div>
                 </div>
             </div>

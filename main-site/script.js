@@ -104,6 +104,7 @@
     title: $("overlayTitle"),
     sub: $("overlaySub"),
     hint: $("overlayHint"),
+    touchHint: $("overlayTouchHint"),
     primary: $("overlayPrimary"),
     secondary: $("overlaySecondary"),
   };
@@ -384,6 +385,7 @@
       overlay.primary.dataset.gameAct = "reset";
       overlay.secondary.hidden = true;
       overlay.hint.textContent = "Or press R.";
+      overlay.touchHint.hidden = true;
     } else {
       overlay.title.textContent = "Paused";
       overlay.sub.hidden = true;
@@ -391,6 +393,7 @@
       overlay.primary.dataset.gameAct = "resume";
       overlay.secondary.hidden = false;
       overlay.hint.textContent = "Press P to resume.";
+      overlay.touchHint.hidden = false;
     }
     overlay.root.classList.remove("hidden");
   }
@@ -784,6 +787,117 @@
     const btn = e.target.closest("[data-game-act]");
     if (btn) press(btn.dataset.gameAct);
   });
+
+  /* -- Touch gestures on the board --
+     Drag sideways to move, one cell per cell of drag. Drag down slowly to
+     soft drop. Flick down to hard drop, flick up to hold. Tap to rotate.
+     The board has touch-action: none and the page overscroll-behavior: none
+     (style.css), so none of this reaches the browser as a scroll, a pull to
+     refresh or a zoom. */
+
+  const frame = canvas.parentElement;
+  const gestureHint = $("gestureHint");
+  const SLOP = 10; // px of travel before a touch counts as a drag
+  const TAP_MS = 250;
+  // px per ms over the last stretch of the gesture. A real flick runs 1 to 3;
+  // a deliberate soft drop drag, around 0.2.
+  const FLICK_SPEED = 0.6;
+  const FLICK_WINDOW_MS = 100;
+  const HINT_SEEN = "uwutetris.gesturesSeen";
+
+  let gesture = null;
+
+  function hideGestureHint() {
+    if (gestureHint.classList.contains("hidden")) return;
+    gestureHint.classList.add("hidden");
+    try {
+      localStorage.setItem(HINT_SEEN, "1");
+    } catch {
+      // Shown again next visit, then.
+    }
+  }
+
+  frame.addEventListener("pointerdown", (e) => {
+    // Mice keep the keyboard; the overlay's buttons and name field keep their taps.
+    if (e.pointerType === "mouse" || gesture || e.target.closest(".board-overlay")) return;
+    e.preventDefault();
+    try {
+      frame.setPointerCapture(e.pointerId);
+    } catch {
+      // Still tracked while the finger stays on the board.
+    }
+    gesture = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      t: e.timeStamp,
+      axis: null,
+      movedX: 0,
+      droppedY: 0,
+      samples: [{ y: e.clientY, t: e.timeStamp }],
+    };
+  });
+
+  frame.addEventListener("pointermove", (e) => {
+    if (!gesture || e.pointerId !== gesture.id) return;
+    const dx = e.clientX - gesture.x;
+    const dy = e.clientY - gesture.y;
+    gesture.samples.push({ y: e.clientY, t: e.timeStamp });
+    while (gesture.samples.length > 2 && e.timeStamp - gesture.samples[1].t > FLICK_WINDOW_MS) gesture.samples.shift();
+
+    // One axis per gesture, so a sideways drag never soft drops by accident.
+    if (!gesture.axis && Math.max(Math.abs(dx), Math.abs(dy)) >= SLOP) {
+      gesture.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    }
+    if (gesture.axis === "x") {
+      const target = Math.trunc(dx / tile);
+      while (gesture.movedX < target) {
+        move(1);
+        gesture.movedX++;
+      }
+      while (gesture.movedX > target) {
+        move(-1);
+        gesture.movedX--;
+      }
+    } else if (gesture.axis === "y" && dy > 0) {
+      const rows = Math.trunc(dy / tile);
+      while (gesture.droppedY < rows) {
+        softDrop();
+        gesture.droppedY++;
+      }
+    }
+  });
+
+  function endGesture(e, cancelled) {
+    if (!gesture || e.pointerId !== gesture.id) return;
+    const g = gesture;
+    gesture = null;
+    if (cancelled) return;
+
+    const dy = e.clientY - g.y;
+    const from = g.samples[0];
+    const speed = (e.clientY - from.y) / Math.max(1, e.timeStamp - from.t);
+
+    if (!g.axis) {
+      if (e.timeStamp - g.t <= TAP_MS) rotate(1);
+    } else if (g.axis === "y") {
+      if (speed >= FLICK_SPEED && dy >= tile) hardDrop();
+      else if (speed <= -FLICK_SPEED && dy <= -tile) holdPiece();
+    }
+    hideGestureHint();
+  }
+
+  frame.addEventListener("pointerup", (e) => endGesture(e, false));
+  frame.addEventListener("pointercancel", (e) => endGesture(e, true));
+
+  // First visit on a touch screen: say what the board does, until it is used.
+  try {
+    if (matchMedia("(pointer: coarse)").matches && !localStorage.getItem(HINT_SEEN)) {
+      gestureHint.classList.remove("hidden");
+    }
+  } catch {
+    // Storage blocked: skip the hint rather than show it every time.
+  }
 
   /* -- Start -- */
 

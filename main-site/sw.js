@@ -1,7 +1,7 @@
 // Bump on every deploy that changes anything this worker serves. The browser
 // compares this file byte for byte, so an unchanged version means nobody is
 // ever offered the update.
-const VERSION = "2026-09-24.2";
+const VERSION = "2026-09-24.3";
 
 const CACHE = `tetris-${VERSION}`;
 // Kept across versions: the font does not change when the site does.
