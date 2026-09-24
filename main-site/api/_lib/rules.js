@@ -1,7 +1,7 @@
 // Score plausibility. The game runs in the browser, so a finished game's
-// numbers are a claim, not a record. These checks refuse claims the game could
-// never produce in the time the server saw it being played. They stop a forged
-// request; they cannot stop somebody sending believable numbers.
+// numbers are a claim, not a record. replay.js recomputes them from the game's
+// log; these checks then refuse any the game could never produce in the time
+// the server saw it being played.
 //
 // Scoring must match script.js: LINE_SCORES times the level before the clear,
 // 1 a row for a soft drop, 2 a row for a hard drop, level 1 + lines / 10.
@@ -9,13 +9,13 @@
 export const LINE_SCORES = [0, 100, 300, 500, 800];
 
 // Well past the fastest human play, so nobody real is refused.
-const MAX_PIECES_PER_SECOND = 6;
+export const MAX_PIECES_PER_SECOND = 6;
 const PIECE_SLACK = 10;
 
 // A piece falls at most 21 rows from its spawn. A hold can send a soft
 // dropped piece back to the top once per lock, so allow two full descents at
 // the hard drop rate.
-const MAX_DROP_POINTS_PER_PIECE = 2 * 2 * 21;
+export const MAX_DROP_POINTS_PER_PIECE = 2 * 2 * 21;
 
 // A game can sit paused for a long time; one left longer than this is gone.
 export const MAX_GAME_MS = 12 * 60 * 60 * 1000;

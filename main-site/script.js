@@ -127,6 +127,11 @@
   let lines = 0;
   let level = 1;
   let pieces = 0; // locked this game; the leaderboard checks the score against it
+  // Every lock and hold this game. The leaderboard replays it to check the
+  // score (api/_lib/replay.js has the format).
+  let log = [];
+  let gameStart = 0; // the clock when this game began
+  let dropPoints = 0; // scored by drops since the last log entry
   let dropInterval = 1000;
   let paused = false;
   let over = false;
@@ -200,7 +205,13 @@
     lowestY = cur.y;
   }
 
+  function record(entry) {
+    log.push([...entry, Math.round(clock - gameStart), dropPoints]);
+    dropPoints = 0;
+  }
+
   function lock() {
+    record([cur.type, cur.r, cur.x, cur.y]);
     pieces++;
     let above = false;
     for (const [x, y] of cellsOf(cur)) {
@@ -293,6 +304,7 @@
   function softDrop() {
     if (!playing() || !tryMove(0, 1)) return;
     score += 1;
+    dropPoints += 1;
     lastDrop = clock;
     afterMove();
     updateStats();
@@ -303,12 +315,14 @@
     let distance = 0;
     while (tryMove(0, 1)) distance++;
     score += distance * 2;
+    dropPoints += distance * 2;
     lock();
     updateStats();
   }
 
   function holdPiece() {
     if (!playing() || !canHold) return;
+    record(["H", cur.type]);
     const incoming = hold ?? takeNext();
     hold = cur.type;
     spawn(incoming);
@@ -355,6 +369,9 @@
     lines = 0;
     level = 1;
     pieces = 0;
+    log = []; // a new array: the last game's is still on its way to the server
+    gameStart = clock;
+    dropPoints = 0;
     dropInterval = 1000;
     paused = false;
     over = false;
@@ -376,7 +393,7 @@
     updateStats();
     showOverlay("over");
     syncPauseButton();
-    announce("tetris:over", { score, lines, level, pieces, assisted });
+    announce("tetris:over", { score, lines, level, pieces, log, assisted });
   }
 
   function setPaused(value) {

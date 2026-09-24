@@ -1,10 +1,11 @@
-// POST /api/game/finish  { game_id, client_key, score, lines, level, pieces }
+// POST /api/game/finish  { game_id, client_key, score, lines, level, pieces, log }
 //   -> { game_id, score, lines, level }
-// Records a game's final numbers once, at game over, if they are possible in
-// the time since /api/game/new. Submit reads the score from here, never from
-// its own request.
+// Records a game's final numbers once, at game over, if a replay of its log
+// comes to the same numbers and they are possible in the time since
+// /api/game/new. Submit reads the score from here, never from its own request.
 
 import { clientKey, endpoint, gameId, HttpError } from "../_lib/http.js";
+import { replay } from "../_lib/replay.js";
 import { implausible, MAX_GAME_MS, readStats } from "../_lib/rules.js";
 import { rest } from "../_lib/supabase.js";
 
@@ -13,6 +14,10 @@ export default endpoint("POST", async ({ body }) => {
   const key = clientKey(body.client_key);
   const stats = readStats(body);
   if (!stats) throw new HttpError(400, "bad_stats", "score, lines, level and pieces are whole numbers.");
+  // A copy of the game from before the log, still cached by the service worker.
+  if (!Array.isArray(body.log)) {
+    throw new HttpError(400, "outdated", "This copy of the game is out of date. Reload to update it.");
+  }
 
   const [game] =
     (await rest(`uwutetris_games?id=eq.${id}&select=client_key,started_at,finished_at`)) ?? [];
@@ -22,7 +27,13 @@ export default endpoint("POST", async ({ body }) => {
 
   const elapsed = Date.now() - Date.parse(game.started_at);
   if (elapsed > MAX_GAME_MS) throw new HttpError(410, "expired", "That game is too old to rank.");
-  if (implausible(stats, elapsed)) {
+  // The reason stays in the logs; telling a cheater which check failed helps them.
+  const played = replay(body.log, elapsed);
+  const reason =
+    played.reason ??
+    (Object.keys(stats).some((field) => stats[field] !== played.stats[field]) ? "mismatch" : implausible(stats, elapsed));
+  if (reason) {
+    console.warn(`game ${id} refused: ${reason}`);
     throw new HttpError(422, "implausible", "That score does not fit the game that was played.");
   }
 

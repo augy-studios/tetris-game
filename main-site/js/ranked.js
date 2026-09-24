@@ -10,7 +10,7 @@ const $ = (id) => document.getElementById(id);
 const fmt = (n) => Number(n).toLocaleString();
 
 // Refusals that no retry will change.
-const FINAL = new Set(["implausible", "already_finished", "already_submitted", "expired", "not_found", "no_score"]);
+const FINAL = new Set(["implausible", "outdated","already_finished", "already_submitted", "expired", "not_found", "no_score"]);
 
 // The game on screen: { id: Promise<string | null>, startError, stats, finished }.
 let current = null;
