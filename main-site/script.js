@@ -527,10 +527,11 @@
   }
 
   /* -- Autoplay --
-     F2, left out of the controls list on purpose. Scores every spot the piece
-     can reach with Pierre Dellacherie's features (weights from El-Tetris),
-     also trying the hold piece, then walks the piece there one move at a
-     time, a move a frame, faster than any hand. A game it ran in is not
+     F2, or a triple tap on the name in the top bar, both left out of the
+     controls list on purpose. Scores every spot the piece can reach with
+     Pierre Dellacherie's features (weights from El-Tetris), also trying the
+     hold piece, then walks the piece there one move at a time, a move a
+     frame, faster than any hand. A game it ran in is not
      ranked; the next game starts clean. */
 
   const AUTO_STEP = 16; // ms of play between its moves: about one a frame
@@ -1061,6 +1062,20 @@
   overlay.root.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-game-act]");
     if (btn) press(btn.dataset.gameAct);
+  });
+
+  // Touch's F2: three quick taps on the name in the top bar. Mice keep F2.
+  const TRIPLE_TAP_MS = 400; // most allowed between one tap and the next
+  let brandTaps = 0;
+  let brandTapAt = 0;
+
+  document.querySelector(".brand").addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;
+    brandTaps = e.timeStamp - brandTapAt <= TRIPLE_TAP_MS ? brandTaps + 1 : 1;
+    brandTapAt = e.timeStamp;
+    if (brandTaps < 3) return;
+    brandTaps = 0;
+    press("autoplay");
   });
 
   /* -- Touch gestures on the board --

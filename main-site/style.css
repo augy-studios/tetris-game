@@ -524,6 +524,11 @@ h1, h2 { font-weight: normal; }
   align-items: center;
   gap: 10px;
   min-width: 0;
+  /* Triple tap toggles autoplay (script.js): no zoom, selection or callout. */
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 .brand-icon {
   width: 32px;
