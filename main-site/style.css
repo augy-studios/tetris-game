@@ -556,7 +556,8 @@ h1, h2 { font-weight: normal; }
   --pad-x: 14px;
   --mini-cell: 16px;
   --chrome-h: 100px;
-  --board-h: clamp(240px, calc(100dvh - var(--chrome-h)), 600px);
+  --replay-h: 0px; /* the replay bar, while it is showing and not in the pad's place */
+  --board-h: clamp(240px, calc(100dvh - var(--chrome-h) - var(--replay-h)), 600px);
 
   display: grid;
   /* --side-w is the side column's minimum; it takes whatever the board,
@@ -788,12 +789,71 @@ h1, h2 { font-weight: normal; }
 }
 .pad-btn.pressed { transform: translateY(1px); }
 
+/* ---- replay bar: a slider over the buttons, where the pad was ---- */
+.replay-bar {
+  grid-column: 1 / -1;
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+.game.replaying { --replay-h: 96px; }
+.game.replaying .replay-bar { display: flex; }
+.game.replaying .pad,
+.game.replaying .gesture-hint { display: none; }
+
+.replay-track {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.replay-seek {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--brand-ink);
+}
+.replay-pos {
+  flex: none;
+  min-width: 6.5em;
+  font-size: 0.85rem;
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.replay-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+.replay-btn {
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: var(--surface-strong);
+  border: 1px solid var(--surface-border);
+  color: var(--ink);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.replay-btn:active { transform: translateY(1px); }
+.replay-btn span { display: inline-flex; }
+.replay-btn svg { width: 22px; height: 22px; }
+#replayPlay { background: var(--brand-fill); color: var(--on-brand); }
+#replayPlay .replay-icon-pause,
+#replayPlay[data-playing="true"] .replay-icon-play { display: none; }
+#replayPlay[data-playing="true"] .replay-icon-pause { display: inline-flex; }
+
 .touch-hint { display: none; }
 
 /* Touch screens: the pad and the board's gestures replace the keyboard
    legend and its hints. */
 @media (pointer: coarse) {
   .game { --chrome-h: 222px; }
+  .game.replaying { --replay-h: 0px; } /* in the pad's room */
   .pad { display: grid; }
   .touch-hint { display: block; }
   .controls-card,

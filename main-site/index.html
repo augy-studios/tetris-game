@@ -192,6 +192,23 @@
             <button class="pad-btn" type="button" data-act="right" aria-label="Move right"><span data-icon="chevronRight"></span></button>
             <button class="pad-btn" type="button" data-act="hard" aria-label="Hard drop"><span data-icon="hardDrop"></span></button>
         </div>
+
+        <!-- Watch replay, from the game over screen. Shown in place of the pad. -->
+        <div class="replay-bar" id="replayBar" role="group" aria-label="Replay">
+            <div class="replay-track">
+                <input id="replaySeek" class="replay-seek" type="range" min="0" max="0" step="1" value="0" aria-label="Replay position">
+                <p class="replay-pos" id="replayPos"></p>
+            </div>
+            <div class="replay-buttons">
+                <button class="replay-btn" type="button" data-replay="back" aria-label="Back a move" title="Back a move (←)"><span data-icon="stepBack"></span></button>
+                <button class="replay-btn" type="button" id="replayPlay" data-replay="play" aria-label="Pause replay" title="Play or pause (Space)">
+                    <span class="replay-icon-play" data-icon="play"></span><span class="replay-icon-pause" data-icon="pause"></span>
+                </button>
+                <button class="replay-btn" type="button" data-replay="forward" aria-label="Forward a move" title="Forward a move (→)"><span data-icon="stepForward"></span></button>
+                <button class="replay-btn" type="button" id="replaySpeed" data-replay="speed" aria-label="Replay speed" title="Speed">1×</button>
+                <button class="replay-btn" type="button" data-replay="close" aria-label="Close replay" title="Close (Esc)"><span data-icon="close"></span></button>
+            </div>
+        </div>
     </main>
 
     <div class="modal-backdrop hidden" id="themeModal">

@@ -127,8 +127,7 @@
 
   let seed = ""; // this game's; the same seed always deals the same pieces
   let chosenSeed = false; // pasted in by the player rather than dealt at random
-  let random = Math.random; // drawn from seed at the start of each game
-  let bag = [];
+  let deal = null; // the next piece out of this game's bags
   let queue = [];
   let cur = null;
   let hold = null;
@@ -191,21 +190,26 @@
 
   /* -- Pieces -- */
 
-  // 7-bag: every piece once per seven, in a fair Fisher-Yates order.
-  function nextFromBag() {
-    if (!bag.length) {
-      bag = [...TYPES];
-      for (let i = bag.length - 1; i > 0; i--) {
-        const j = Math.floor(random() * (i + 1));
-        [bag[i], bag[j]] = [bag[j], bag[i]];
+  // 7-bag: every piece once per seven, in a fair Fisher-Yates order. The same
+  // seed always deals the same pieces, which is what lets a replay deal them again.
+  function dealer(text) {
+    const random = seededRandom(text);
+    let bag = [];
+    return () => {
+      if (!bag.length) {
+        bag = [...TYPES];
+        for (let i = bag.length - 1; i > 0; i--) {
+          const j = Math.floor(random() * (i + 1));
+          [bag[i], bag[j]] = [bag[j], bag[i]];
+        }
       }
-    }
-    return bag.pop();
+      return bag.pop();
+    };
   }
 
   // Leaves exactly NEXT_COUNT behind for the preview.
   function takeNext() {
-    while (queue.length <= NEXT_COUNT) queue.push(nextFromBag());
+    while (queue.length <= NEXT_COUNT) queue.push(deal());
     return queue.shift();
   }
 
@@ -274,21 +278,29 @@
     updateStats();
   }
 
-  function clearLines() {
+  // Takes the full rows out of grid, the board or a replay's, and says how many.
+  function removeFullRows(grid) {
     let cleared = 0;
     for (let y = ROWS - 1; y >= 0; y--) {
-      if (board[y].every((c) => c !== "")) {
-        board.splice(y, 1);
-        board.unshift(Array(COLS).fill(""));
+      if (grid[y].every((c) => c !== "")) {
+        grid.splice(y, 1);
+        grid.unshift(Array(COLS).fill(""));
         cleared++;
         y++;
       }
     }
+    return cleared;
+  }
+
+  const levelFor = (lines) => 1 + Math.floor(lines / 10);
+
+  function clearLines() {
+    const cleared = removeFullRows(board);
     if (!cleared) return;
 
     lines += cleared;
     score += LINE_SCORES[cleared] * level;
-    level = 1 + Math.floor(lines / 10);
+    level = levelFor(lines);
     dropInterval = Math.max(80, 1000 - (level - 1) * 60);
   }
 
@@ -406,9 +418,9 @@
   function reset(chosen = "") {
     chosenSeed = chosen !== "";
     seed = chosenSeed ? chosen : randomSeed();
-    random = seededRandom(seed);
+    deal = dealer(seed);
+    closeReplay(false);
     board.forEach((row) => row.fill(""));
-    bag = [];
     queue = [];
     hold = null;
     canHold = true;
@@ -460,7 +472,9 @@
       overlay.sub.hidden = false;
       overlay.primary.textContent = "Play again";
       overlay.primary.dataset.gameAct = "reset";
-      overlay.secondary.hidden = true;
+      overlay.secondary.textContent = "Watch replay";
+      overlay.secondary.dataset.gameAct = "replay";
+      overlay.secondary.hidden = log.length === 0;
       overlay.hint.textContent = "Or press R.";
       overlay.touchHint.hidden = true;
     } else {
@@ -468,6 +482,8 @@
       overlay.sub.hidden = true;
       overlay.primary.textContent = "Resume";
       overlay.primary.dataset.gameAct = "resume";
+      overlay.secondary.textContent = "Restart";
+      overlay.secondary.dataset.gameAct = "reset";
       overlay.secondary.hidden = false;
       overlay.hint.textContent = "Press P to resume.";
       overlay.touchHint.hidden = false;
@@ -516,10 +532,12 @@
     reset(chosen);
   });
 
+  // The game's numbers, or the replay's at the move on screen.
   function updateStats() {
-    stats.score.textContent = score.toLocaleString();
-    stats.level.textContent = String(level);
-    stats.lines.textContent = String(lines);
+    const v = replay ? replay.frames[replay.at] : { score, level, lines };
+    stats.score.textContent = v.score.toLocaleString();
+    stats.level.textContent = String(v.level);
+    stats.lines.textContent = String(v.lines);
   }
 
   function syncPauseButton() {
@@ -676,6 +694,190 @@
     }
   }
 
+  /* -- Replay --
+     The game just finished, played back from its log one placement at a
+     time: the board as it stood, with the next piece drawn where it locked.
+     The seed deals the same pieces again, so hold and next show what the
+     player saw. It keeps the pace the game was played at, less long thinks,
+     and plays, pauses and steps like a video. */
+
+  const REPLAY_SPEEDS = [1, 2, 4];
+  const REPLAY_MAX_STEP_MS = 1500; // longest one placement stays up, at 1x
+
+  const replayUI = {
+    seek: $("replaySeek"),
+    pos: $("replayPos"),
+    play: $("replayPlay"),
+    speed: $("replaySpeed"),
+  };
+
+  // { frames, at, playing, elapsed, speed } while a replay is open.
+  let replay = null;
+
+  // One frame per log entry, the game just before it, then one for the end.
+  // Must deal, hold, lock and score as the game does.
+  function replayFrames(entries, text) {
+    const next = dealer(text);
+    const upcoming = [];
+    const take = () => {
+      while (upcoming.length <= NEXT_COUNT) upcoming.push(next());
+      return upcoming.shift();
+    };
+    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(""));
+    const frames = [];
+    let hold = null;
+    let canHold = true;
+    let score = 0;
+    let lines = 0;
+    let level = 1;
+    let lastT = 0;
+
+    const frame = (piece, held, ms) => ({
+      board: grid.map((row) => [...row]),
+      hold,
+      canHold,
+      next: upcoming.slice(0, NEXT_COUNT),
+      score,
+      lines,
+      level,
+      piece, // where the piece in play locked; null for a hold, or at the end
+      held, // the piece put on hold, for a hold
+      ms, // how long the piece was in play before that
+    });
+
+    take(); // the first piece
+    for (const entry of entries) {
+      const [t, points] = entry.slice(-2);
+      if (entry[0] === "H") {
+        frames.push(frame(null, entry[1], t - lastT));
+        if (hold === null) take();
+        hold = entry[1];
+        canHold = false;
+      } else {
+        const [type, r, x, y] = entry;
+        const piece = { type, r, x, y };
+        frames.push(frame(piece, null, t - lastT));
+        let above = false;
+        for (const [cx, cy] of cellsOf(piece)) {
+          if (cy < 0) above = true;
+          else grid[cy][cx] = type;
+        }
+        canHold = true;
+        if (!above) {
+          const cleared = removeFullRows(grid);
+          lines += cleared;
+          score += LINE_SCORES[cleared] * level;
+          level = levelFor(lines);
+          take();
+        }
+      }
+      score += points;
+      lastT = t;
+    }
+    frames.push(frame(null, null, 0));
+    return frames;
+  }
+
+  function openReplay() {
+    if (!over || !log.length) return;
+    replay = { frames: replayFrames(log, seed), at: 0, playing: true, elapsed: 0, speed: 0 };
+    replayUI.seek.max = String(replay.frames.length - 1);
+    hideOverlay();
+    game.classList.add("replaying");
+    fit();
+    showReplayFrame();
+  }
+
+  // Back to the game over screen, or straight on when a new game is starting.
+  function closeReplay(backToOverlay = true) {
+    if (!replay) return;
+    replay = null;
+    if (game.contains(document.activeElement)) document.activeElement.blur();
+    game.classList.remove("replaying");
+    fit();
+    dirty = true;
+    drawMinis();
+    updateStats();
+    if (backToOverlay) showOverlay("over");
+  }
+
+  function showReplayFrame() {
+    const { frames, at, playing, speed } = replay;
+    const last = frames.length - 1;
+    const pos = at === last ? "Game over" : `${at + 1} / ${last}${frames[at].held ? " · hold" : ""}`;
+    dirty = true;
+    drawMinis();
+    updateStats();
+    replayUI.seek.value = String(at);
+    replayUI.seek.setAttribute("aria-valuetext", pos);
+    replayUI.pos.textContent = pos;
+    replayUI.play.dataset.playing = String(playing);
+    replayUI.play.setAttribute("aria-label", playing ? "Pause replay" : "Play replay");
+    replayUI.speed.textContent = `${REPLAY_SPEEDS[speed]}×`;
+  }
+
+  function replayGo(at) {
+    replay.at = Math.max(0, Math.min(replay.frames.length - 1, at));
+    replay.elapsed = 0;
+    showReplayFrame();
+  }
+
+  // Stepping or seeking stops play, to look at the move.
+  function replaySeek(at) {
+    replay.playing = false;
+    replayGo(at);
+  }
+
+  // Play from the end starts again from the top.
+  function replayToggle() {
+    replay.playing = !replay.playing;
+    if (replay.playing && replay.at === replay.frames.length - 1) replayGo(0);
+    else showReplayFrame();
+  }
+
+  function replaySpeed() {
+    replay.speed = (replay.speed + 1) % REPLAY_SPEEDS.length;
+    showReplayFrame();
+  }
+
+  function replayTick(dt) {
+    const { frames } = replay;
+    const last = frames.length - 1;
+    const start = replay.at;
+    replay.elapsed += dt * REPLAY_SPEEDS[replay.speed];
+    while (replay.at < last) {
+      const ms = Math.min(frames[replay.at].ms, REPLAY_MAX_STEP_MS);
+      if (replay.elapsed < ms) break;
+      replay.elapsed -= ms;
+      replay.at++;
+    }
+    if (replay.at === last) replay.playing = false;
+    if (replay.at !== start) showReplayFrame();
+  }
+
+  // The game's keys and pad, while a replay is open: left and right step,
+  // pause and hard drop play and pause, other moves do nothing. Restart and
+  // autoplay still start a new game, which closes the replay.
+  function replayPress(action) {
+    switch (action) {
+      case "left":
+        replaySeek(replay.at - 1);
+        return true;
+      case "right":
+        replaySeek(replay.at + 1);
+        return true;
+      case "pause":
+      case "hard":
+        replayToggle();
+        return true;
+      case "reset":
+      case "autoplay":
+        return false;
+      default:
+        return true;
+    }
+  }
+
   /* -- Drawing -- */
 
   function readPalette() {
@@ -736,8 +938,21 @@
     return y;
   }
 
+  // The piece a replay is about to lock, drawn where it landed and ringed so
+  // it stands out from the stack.
+  function paintPlaced(x, y, type) {
+    paintCell(ctx, x, y, tile, palette.piece[type]);
+    const { px, py, s, r } = cellBox(x, y, tile);
+    ctx.strokeStyle = palette.ghostStroke;
+    ctx.lineWidth = 2;
+    roundedRect(ctx, px + 1, py + 1, s - 2, s - 2, r);
+    ctx.stroke();
+  }
+
   function draw() {
     dirty = false;
+    const view = replay && replay.frames[replay.at];
+    const cells = view ? view.board : board;
     const w = COLS * tile;
     const h = ROWS * tile;
 
@@ -760,11 +975,15 @@
 
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
-        if (board[y][x]) paintCell(ctx, x, y, tile, palette.piece[board[y][x]]);
+        if (cells[y][x]) paintCell(ctx, x, y, tile, palette.piece[cells[y][x]]);
       }
     }
 
-    if (cur && !over) {
+    if (view) {
+      if (view.piece) {
+        for (const [x, y] of cellsOf(view.piece)) if (y >= 0) paintPlaced(x, y, view.piece.type);
+      }
+    } else if (cur && !over) {
       const gy = ghostY();
       if (gy !== cur.y) {
         for (const [x, y] of cellsOf({ ...cur, y: gy })) if (y >= 0) paintGhost(x, y);
@@ -801,10 +1020,11 @@
 
   function drawMinis() {
     if (!palette) return;
-    drawMini(holdCanvas, hold, !canHold);
-    nextCanvases.forEach((cv, i) => drawMini(cv, queue[i], false));
-    holdCanvas.setAttribute("aria-label", hold ? `Hold: ${hold} piece` : "Hold: empty");
-    nextList.setAttribute("aria-label", `Next pieces: ${queue.slice(0, NEXT_COUNT).join(", ")}`);
+    const v = replay ? replay.frames[replay.at] : { hold, canHold, next: queue };
+    drawMini(holdCanvas, v.hold, !v.canHold);
+    nextCanvases.forEach((cv, i) => drawMini(cv, v.next[i], false));
+    holdCanvas.setAttribute("aria-label", v.hold ? `Hold: ${v.hold} piece` : "Hold: empty");
+    nextList.setAttribute("aria-label", `Next pieces: ${v.next.slice(0, NEXT_COUNT).join(", ")}`);
   }
 
   /* -- Sizing -- */
@@ -861,6 +1081,7 @@
         autoStep();
       }
     }
+    if (replay?.playing && !modalOpen) replayTick(dt);
     if (dirty) draw();
     requestAnimationFrame(loop);
   }
@@ -893,6 +1114,7 @@
   const MOVES = new Set(["left", "right", "soft", "hard", "cw", "ccw", "hold"]);
 
   function press(action) {
+    if (replay && replayPress(action)) return;
     // Playing a move by hand takes over from autoplay.
     if (autoplay && MOVES.has(action)) autoplay = false;
     switch (action) {
@@ -933,6 +1155,9 @@
         break;
       case "autoplay":
         toggleAutoplay();
+        break;
+      case "replay":
+        openReplay();
         break;
     }
   }
@@ -998,18 +1223,31 @@
   }
 
   // Typing a leaderboard name is not playing: R in a name must not restart.
+  // The replay's slider is not typing: the arrows step it like everywhere else.
   function typing(e) {
-    return e.target instanceof Element && (e.target.closest("input, textarea, select") !== null || e.target.isContentEditable);
+    return (
+      e.target instanceof Element &&
+      (e.target.closest('input:not([type="range"]), textarea, select') !== null || e.target.isContentEditable)
+    );
   }
 
   window.addEventListener("keydown", (e) => {
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
     if (document.body.classList.contains("modal-open") || typing(e) || meantForControl(e)) return;
 
+    // Esc leaves a replay rather than pausing.
+    if (replay && e.key === "Escape") {
+      e.preventDefault();
+      closeReplay();
+      return;
+    }
+
     const action = actionFor(e);
     if (!action) return;
     e.preventDefault(); // arrows and Space would otherwise scroll the page
-    if (e.repeat) return; // repeats come from our own timers
+    // Repeats come from our own timers, except that holding an arrow runs
+    // through a replay.
+    if (e.repeat && !(replay && (action === "left" || action === "right"))) return;
     press(action);
   });
 
@@ -1064,6 +1302,40 @@
     if (btn) press(btn.dataset.gameAct);
   });
 
+  const replayBar = $("replayBar");
+
+  // No focus left on a tapped or clicked button, as on the pad, so Space
+  // goes on playing and pausing rather than pressing it again.
+  replayBar.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) e.preventDefault();
+  });
+
+  replayBar.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-replay]");
+    if (!btn || !replay) return;
+    switch (btn.dataset.replay) {
+      case "back":
+        replaySeek(replay.at - 1);
+        break;
+      case "forward":
+        replaySeek(replay.at + 1);
+        break;
+      case "play":
+        replayToggle();
+        break;
+      case "speed":
+        replaySpeed();
+        break;
+      case "close":
+        closeReplay();
+        break;
+    }
+  });
+
+  replayUI.seek.addEventListener("input", () => {
+    if (replay) replaySeek(Number(replayUI.seek.value));
+  });
+
   // Touch's F2: three quick taps on the name in the top bar. Mice keep F2.
   const TRIPLE_TAP_MS = 400; // most allowed between one tap and the next
   let brandTaps = 0;
@@ -1108,6 +1380,11 @@
   }
 
   frame.addEventListener("pointerdown", (e) => {
+    // In a replay, a tap or click on the board plays and pauses it, as on a video.
+    if (replay) {
+      if (e.button === 0) replayToggle();
+      return;
+    }
     // Mice keep the keyboard; the overlay's buttons and name field keep their taps.
     if (e.pointerType === "mouse" || gesture || e.target.closest(".board-overlay")) return;
     e.preventDefault();

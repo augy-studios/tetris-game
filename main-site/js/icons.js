@@ -26,6 +26,11 @@ export const icons = {
   rotateCw: svg(`<path d="M20 12a8 8 0 1 1-2.34-5.66L20 8.5"/><path d="M20 3.5v5h-5"/>`),
   rotateCcw: svg(`<path d="M4 12a8 8 0 1 0 2.34-5.66L4 8.5"/><path d="M4 3.5v5h5"/>`),
   pause: svg(`<path d="M9 5v14M15 5v14"/>`),
+
+  // Replay
+  play: svg(`<path d="M7 4.5v15L19 12Z"/>`),
+  stepBack: svg(`<path d="M18 5v14L8 12ZM6 5v14"/>`),
+  stepForward: svg(`<path d="M6 5v14l10-7ZM18 5v14"/>`),
 };
 
 export function icon(name) {
