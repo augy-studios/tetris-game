@@ -12,7 +12,7 @@ const fmt = (n) => Number(n).toLocaleString();
 // Refusals that no retry will change.
 const FINAL = new Set(["implausible", "outdated","already_finished", "already_submitted", "expired", "not_found", "no_score"]);
 
-// The game on screen: { id: Promise<string | null>, startError, stats, finished }.
+// The game on screen: { id: Promise<string | null>, seeded, startError, stats, finished }.
 let current = null;
 
 function say(text) {
@@ -24,9 +24,16 @@ function showForm(visible) {
   $("submitBtn").disabled = false;
 }
 
-function onStart() {
+function onStart(event) {
   $("rankArea").hidden = true;
-  const game = { startError: null, stats: null, finished: null };
+  const game = { seeded: event.detail.seeded, startError: null, stats: null, finished: null };
+  current = game;
+  // A pasted seed deals pieces the player may already know, so it is never
+  // ranked and needs no game id.
+  if (game.seeded) {
+    game.id = Promise.resolve(null);
+    return;
+  }
   // Offline, or the API down: the game still plays, unranked.
   game.id = api.newGame().then(
     (r) => r.game_id,
@@ -35,7 +42,6 @@ function onStart() {
       return null;
     }
   );
-  current = game;
 }
 
 // Sent once. A dropped connection or a server error may be retried; the
@@ -64,6 +70,10 @@ async function onOver(event) {
 
   if (assisted) {
     say("Autoplay was used in this game, so it is not ranked.");
+    return;
+  }
+  if (game.seeded) {
+    say("This game was played from a chosen seed, so it is not ranked.");
     return;
   }
 

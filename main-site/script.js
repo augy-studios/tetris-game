@@ -19,6 +19,10 @@
   const TYPES = ["I", "J", "L", "O", "S", "T", "Z"];
   const LINE_SCORES = [0, 100, 300, 500, 800];
 
+  // Crockford's base 32: no I, L, O or U to misread when a seed is copied by hand.
+  const SEED_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+  const SEED_LENGTH = 8;
+
   // Cells per rotation state (0, R, 2, L), with y pointing down.
   const SHAPES = {
     I: [
@@ -107,6 +111,9 @@
     touchHint: $("overlayTouchHint"),
     primary: $("overlayPrimary"),
     secondary: $("overlaySecondary"),
+    seedForm: $("seedForm"),
+    seedInput: $("seedInput"),
+    seedCopy: $("seedCopy"),
   };
 
   // Board cells hold a piece type, not a colour, so a theme change recolours
@@ -118,6 +125,9 @@
   let palette = null;
   let dirty = true;
 
+  let seed = ""; // this game's; the same seed always deals the same pieces
+  let chosenSeed = false; // pasted in by the player rather than dealt at random
+  let random = Math.random; // drawn from seed at the start of each game
   let bag = [];
   let queue = [];
   let cur = null;
@@ -146,6 +156,39 @@
   let lowestY = 0;
   let suspended = false;
 
+  /* -- Seeds -- */
+
+  function randomSeed() {
+    return Array.from(crypto.getRandomValues(new Uint8Array(SEED_LENGTH)), (b) => SEED_CHARS[b & 31]).join("");
+  }
+
+  // Any text is a seed. Case and spaces are dropped, so a seed read aloud or
+  // pasted with a stray space still deals the same game.
+  function cleanSeed(text) {
+    return text.replace(/\s+/g, "").toUpperCase().slice(0, 32);
+  }
+
+  // FNV-1a, to turn the seed's text into mulberry32's 32-bit state.
+  function hashSeed(text) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i++) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return h >>> 0;
+  }
+
+  // mulberry32: a small, fast generator, plenty for shuffling seven pieces.
+  function seededRandom(text) {
+    let a = hashSeed(text);
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
   /* -- Pieces -- */
 
   // 7-bag: every piece once per seven, in a fair Fisher-Yates order.
@@ -153,7 +196,7 @@
     if (!bag.length) {
       bag = [...TYPES];
       for (let i = bag.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
+        const j = Math.floor(random() * (i + 1));
         [bag[i], bag[j]] = [bag[j], bag[i]];
       }
     }
@@ -359,7 +402,11 @@
     else send();
   }
 
-  function reset() {
+  // A new game, dealt from the seed given or from a fresh random one.
+  function reset(chosen = "") {
+    chosenSeed = chosen !== "";
+    seed = chosenSeed ? chosen : randomSeed();
+    random = seededRandom(seed);
     board.forEach((row) => row.fill(""));
     bag = [];
     queue = [];
@@ -379,7 +426,7 @@
     assisted = false;
     releaseAll();
     hideOverlay();
-    announce("tetris:start", {});
+    announce("tetris:start", { seeded: chosenSeed });
     spawn(takeNext());
     updateStats();
     syncPauseButton();
@@ -425,12 +472,49 @@
       overlay.hint.textContent = "Press P to resume.";
       overlay.touchHint.hidden = false;
     }
+    overlay.seedInput.value = seed;
+    overlay.seedCopy.textContent = "Copy";
     overlay.root.classList.remove("hidden");
   }
 
   function hideOverlay() {
+    // A field left focused under the hidden overlay would swallow the game's keys.
+    if (overlay.root.contains(document.activeElement)) document.activeElement.blur();
     overlay.root.classList.add("hidden");
   }
+
+  // Copies this game's seed, whatever has been typed over it since.
+  async function copySeed() {
+    const input = overlay.seedInput;
+    input.value = seed;
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(seed);
+      copied = true;
+    } catch {
+      // No clipboard access: select it, for the older copy command or by hand.
+      input.select();
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+    }
+    overlay.seedCopy.textContent = copied ? "Copied" : "Copy";
+    if (!copied) input.select();
+  }
+
+  overlay.seedCopy.addEventListener("click", copySeed);
+
+  overlay.seedForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const chosen = cleanSeed(overlay.seedInput.value);
+    if (!chosen) {
+      overlay.seedInput.focus();
+      return;
+    }
+    reset(chosen);
+  });
 
   function updateStats() {
     stats.score.textContent = score.toLocaleString();

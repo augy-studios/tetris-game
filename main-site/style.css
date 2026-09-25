@@ -665,6 +665,27 @@ h1, h2 { font-weight: normal; }
 }
 .rank-msg:empty { display: none; }
 
+/* Pause and game over: the game's seed, to copy or to replace. */
+.seed-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+}
+.seed-label { font-size: 0.85rem; color: var(--muted); }
+.seed-row {
+  display: flex;
+  gap: 6px;
+}
+.seed-row .btn { flex: none; padding: 8px 10px; }
+.seed-field {
+  padding: 8px 10px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
 /* ---- side column ---- */
 .side {
   display: grid;

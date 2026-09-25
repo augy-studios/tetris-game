@@ -113,6 +113,18 @@
                             </button>
                         </div>
 
+                        <!-- This game's seed: copy it to share, or paste one in to play that game. -->
+                        <form class="seed-form" id="seedForm" autocomplete="off">
+                            <label for="seedInput" class="seed-label">Seed</label>
+                            <div class="seed-row">
+                                <input id="seedInput" class="field seed-field" type="text" placeholder="Paste a seed"
+                                    maxlength="40" spellcheck="false" autocapitalize="characters" autocorrect="off"
+                                    enterkeyhint="go">
+                                <button id="seedCopy" class="btn btn-quiet" type="button">Copy</button>
+                                <button class="btn btn-quiet" type="submit" aria-label="Play this seed">Play</button>
+                            </div>
+                        </form>
+
                         <div class="overlay-actions">
                             <button class="btn btn-primary" type="button" id="overlayPrimary" data-game-act="resume">Resume</button>
                             <button class="btn btn-quiet" type="button" id="overlaySecondary" data-game-act="reset">Restart</button>
