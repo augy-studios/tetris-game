@@ -487,6 +487,7 @@ h1, h2 { font-weight: normal; }
   --piece-s: #1f8a3f;
   --piece-t: #8a3fc7;
   --piece-z: #c9303c;
+  --piece-g: #7d8681; /* garbage from the other board in a match */
 }
 
 :root[data-mode="dark"] {
@@ -502,6 +503,13 @@ h1, h2 { font-weight: normal; }
   --piece-s: #22d37b;
   --piece-t: #c56bff;
   --piece-z: #ff5964;
+  --piece-g: #6b746f;
+}
+
+/* QR codes stay dark on light in both modes: that is what scanners expect. */
+:root {
+  --qr-light: #ffffff;
+  --qr-dark: #121815;
 }
 
 /* ==========================================================================
@@ -789,14 +797,14 @@ h1, h2 { font-weight: normal; }
 }
 .pad-btn.pressed { transform: translateY(1px); }
 
-/* ---- replay bar: a slider over the buttons, where the pad was ---- */
+/* ---- replay bar: slider, buttons, then speed, where the pad was ---- */
 .replay-bar {
   grid-column: 1 / -1;
   display: none;
   flex-direction: column;
   gap: 8px;
 }
-.game.replaying { --replay-h: 96px; }
+.game.replaying { --replay-h: 132px; }
 .game.replaying .replay-bar { display: flex; }
 .game.replaying .pad,
 .game.replaying .gesture-hint { display: none; }
@@ -811,12 +819,35 @@ h1, h2 { font-weight: normal; }
   min-width: 0;
   accent-color: var(--brand-ink);
 }
+.replay-time,
 .replay-pos {
   flex: none;
-  min-width: 6.5em;
   font-size: 0.85rem;
   color: var(--ink);
   text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.replay-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.replay-foot .replay-pos {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.replay-speed {
+  flex: none;
+  grid-template-columns: repeat(4, auto);
+  gap: 2px;
+  padding: 3px;
+}
+.replay-speed .mode-btn {
+  min-width: 2.9em;
+  padding: 5px 8px;
   font-variant-numeric: tabular-nums;
 }
 .replay-buttons {
@@ -847,13 +878,110 @@ h1, h2 { font-weight: normal; }
 #replayPlay[data-playing="true"] .replay-icon-play { display: none; }
 #replayPlay[data-playing="true"] .replay-icon-pause { display: inline-flex; }
 
+/* ---- versus: the other board, and pairing ---- */
+.opp-card { grid-column: 1 / -1; }
+.opp-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.opp-board {
+  --opp-cell: 9px;
+  display: block;
+  flex: none;
+  width: calc(10 * var(--opp-cell));
+  height: calc(20 * var(--opp-cell));
+  border-radius: 8px;
+  border: 1px solid var(--surface-border);
+}
+.opp-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+.opp-info {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.opp-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-strong);
+}
+.net-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--busy);
+}
+[data-tone="ok"] > .net-dot { background: var(--ok); }
+[data-tone="warn"] > .net-dot { background: var(--warn); }
+[data-tone="error"] > .net-dot { background: var(--error); }
+
+/* The opponent's card takes the controls card's room. */
+body.versus .controls-card { display: none; }
+
+.vs-choose,
+.vs-host {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.vs-choose > .btn { align-self: flex-start; }
+.vs-join {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--surface-border);
+}
+.vs-code-field {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.vs-host { align-items: center; text-align: center; }
+.code-big {
+  font-size: 2.2rem;
+  letter-spacing: 0.22em;
+  color: var(--brand-ink);
+  font-variant-numeric: tabular-nums;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.qr svg {
+  display: block;
+  width: 180px;
+  height: 180px;
+  margin: 0 auto;
+  border-radius: 12px;
+}
+.qr .qr-bg { fill: var(--qr-light); }
+.qr .qr-fg { fill: var(--qr-dark); }
+.vs-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.vs-status {
+  min-height: 1.4em;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+.vs-status[data-tone="error"] { color: var(--error); }
+
 .touch-hint { display: none; }
 
 /* Touch screens: the pad and the board's gestures replace the keyboard
    legend and its hints. */
 @media (pointer: coarse) {
   .game { --chrome-h: 222px; }
-  .game.replaying { --replay-h: 0px; } /* in the pad's room */
+  .game.replaying { --replay-h: 24px; } /* in the pad's room, and a little more */
   .pad { display: grid; }
   .touch-hint { display: block; }
   .controls-card,
@@ -885,6 +1013,14 @@ h1, h2 { font-weight: normal; }
   .stat-score .stat-val { font-size: 1.05rem; }
   .controls-card { display: none; }
   .next-list { gap: 6px; }
+
+  /* A narrow column: the other board goes small and on its own, under three
+     next pieces rather than five. */
+  .opp-card { order: 4; }
+  .opp-body { flex-direction: column; gap: 6px; }
+  .opp-board { --opp-cell: 6px; }
+  .opp-text { font-size: 0.75rem; }
+  body.versus .next-list canvas:nth-child(n + 4) { display: none; }
 }
 
 @media (max-width: 480px) and (pointer: coarse) {

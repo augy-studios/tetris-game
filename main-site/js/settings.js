@@ -1,11 +1,12 @@
-// Player settings, kept in this browser: the leaderboard name, and whether
-// finished games go on the leaderboard under it without asking.
+// Player settings, kept in this browser: the leaderboard name, whether
+// finished games go on the leaderboard under it without asking, and whether
+// the replay plays by itself when a game ends.
 
 import { api } from "./api.js";
 import { openModal } from "./ui.js";
 
 const STORAGE = "uwutetris.settings";
-const DEFAULTS = { name: null, auto_submit: false };
+const DEFAULTS = { name: null, auto_submit: false, auto_replay: true };
 
 let current = null;
 
@@ -19,6 +20,7 @@ function load() {
   const out = { ...DEFAULTS };
   if (typeof saved.name === "string" && saved.name.trim()) out.name = saved.name.trim();
   out.auto_submit = saved.auto_submit === true;
+  out.auto_replay = saved.auto_replay !== false;
   // Adding games automatically needs a name to add them under.
   if (!out.name) out.auto_submit = false;
   return out;

@@ -1,13 +1,15 @@
 // Page wiring: the theme modal (uwuapps-theme.md, section 6), settings, the
-// leaderboards and the update bar. The game itself lives in /script.js; it
-// reads the theme tokens and announces each game's start and end.
+// leaderboards, versus, the instant replay and the update bar. The game
+// itself lives in /script.js; it reads the theme tokens and announces each
+// game's start and end.
 
 import { COLOR_THEMES, applyColorTheme, applyMode, getStoredColorTheme, getStoredMode, getModePreference, initTheme } from "./theme.js";
 import { hydrateIcons, openModal, closeModal, closeTopModal } from "./ui.js";
 import { initUpdateBar } from "./update.js";
-import { initSettings } from "./settings.js";
+import { getSettings, initSettings } from "./settings.js";
 import { initLeaderboard } from "./leaderboard.js";
 import { initRanked } from "./ranked.js";
+import { initVersus } from "./versus.js";
 
 function buildThemeModal() {
   const grid = document.getElementById("swatchGrid");
@@ -108,7 +110,26 @@ function boot() {
   initSettings();
   initLeaderboard();
   initRanked();
+  initVersus({ joinCode: takeParam("join") });
   initUpdateBar();
+
+  // The instant replay: the game just finished plays back by itself, unless
+  // Settings says not to. Watch replay on the game over screen still opens it.
+  document.addEventListener("tetris:over", () => {
+    if (getSettings().auto_replay) window.uwuTetris.openReplay();
+  });
+}
+
+// Reads a parameter and takes it out of the address, so a reload does not
+// act on it a second time.
+function takeParam(name) {
+  const params = new URLSearchParams(location.search);
+  const value = params.get(name);
+  if (value === null) return null;
+  params.delete(name);
+  const rest = params.toString();
+  history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
+  return value;
 }
 
 boot();

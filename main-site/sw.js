@@ -1,7 +1,7 @@
 // Bump on every deploy that changes anything this worker serves. The browser
 // compares this file byte for byte, so an unchanged version means nobody is
 // ever offered the update.
-const VERSION = "2026-09-25.3";
+const VERSION = "2026-10-07.1";
 
 const CACHE = `tetris-${VERSION}`;
 // Kept across versions: the font does not change when the site does.
@@ -24,6 +24,11 @@ const ASSETS = [
   "/js/settings.js",
   "/js/leaderboard.js",
   "/js/ranked.js",
+  // Versus. PeerJS itself is left to the network (STUN-p2p-spec.md): pairing
+  // needs it anyway, and an old signalling client is worse than none.
+  "/js/versus.js",
+  "/js/net.js",
+  "/js/qr.js",
   "/manifest.json",
   "/favicon.ico",
   "/XTT-192.png",

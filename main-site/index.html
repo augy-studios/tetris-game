@@ -72,6 +72,9 @@
             <h1 class="app-title">Tetris Game</h1>
         </div>
         <div class="topbar-actions">
+            <button class="icon-btn" id="versusBtn" type="button" aria-label="Play someone nearby">
+                <span data-icon="users"></span>
+            </button>
             <button class="icon-btn" id="boardBtn" type="button" aria-label="Leaderboard">
                 <span data-icon="trophy"></span>
             </button>
@@ -170,6 +173,20 @@
                 </div>
             </section>
 
+            <!-- Versus only: the other device's board, from js/versus.js. -->
+            <section class="card glass opp-card" id="oppCard" aria-labelledby="oppTitle" hidden>
+                <h2 class="card-title" id="oppTitle">Opponent</h2>
+                <div class="opp-body">
+                    <canvas class="opp-board" id="oppBoard" role="img" aria-label="Opponent's board"></canvas>
+                    <div class="opp-text">
+                        <p class="opp-info" id="oppInfo"></p>
+                        <p class="opp-status" id="oppStatus" data-tone="busy">
+                            <span class="net-dot" aria-hidden="true"></span><span id="oppStatusText"></span>
+                        </p>
+                    </div>
+                </div>
+            </section>
+
             <section class="card glass controls-card">
                 <h2 class="card-title">Controls</h2>
                 <ul class="legend">
@@ -193,20 +210,30 @@
             <button class="pad-btn" type="button" data-act="hard" aria-label="Hard drop"><span data-icon="hardDrop"></span></button>
         </div>
 
-        <!-- Watch replay, from the game over screen. Shown in place of the pad. -->
+        <!-- The instant replay of the game just finished, or of a shared link.
+             Shown in place of the pad. script.js fills it in. -->
         <div class="replay-bar" id="replayBar" role="group" aria-label="Replay">
             <div class="replay-track">
                 <input id="replaySeek" class="replay-seek" type="range" min="0" max="0" step="1" value="0" aria-label="Replay position">
-                <p class="replay-pos" id="replayPos"></p>
+                <span class="replay-time" id="replayTime"></span>
             </div>
             <div class="replay-buttons">
-                <button class="replay-btn" type="button" data-replay="back" aria-label="Back a move" title="Back a move (←)"><span data-icon="stepBack"></span></button>
-                <button class="replay-btn" type="button" id="replayPlay" data-replay="play" aria-label="Pause replay" title="Play or pause (Space)">
+                <button class="replay-btn" type="button" data-replay="back" aria-label="Back a piece" aria-keyshortcuts="ArrowLeft" title="Back a piece (←)"><span data-icon="stepBack"></span></button>
+                <button class="replay-btn" type="button" id="replayPlay" data-replay="play" aria-label="Pause replay" aria-keyshortcuts="Space" title="Play or pause (Space)">
                     <span class="replay-icon-play" data-icon="play"></span><span class="replay-icon-pause" data-icon="pause"></span>
                 </button>
-                <button class="replay-btn" type="button" data-replay="forward" aria-label="Forward a move" title="Forward a move (→)"><span data-icon="stepForward"></span></button>
-                <button class="replay-btn" type="button" id="replaySpeed" data-replay="speed" aria-label="Replay speed" title="Speed">1×</button>
-                <button class="replay-btn" type="button" data-replay="close" aria-label="Close replay" title="Close (Esc)"><span data-icon="close"></span></button>
+                <button class="replay-btn" type="button" data-replay="forward" aria-label="Forward a piece" aria-keyshortcuts="ArrowRight" title="Forward a piece (→)"><span data-icon="stepForward"></span></button>
+                <button class="replay-btn" type="button" id="replayShare" data-replay="share" aria-label="Share replay" title="Share replay"><span data-icon="share"></span></button>
+                <button class="replay-btn" type="button" data-replay="close" aria-label="Close replay" aria-keyshortcuts="Escape" title="Close (Esc)"><span data-icon="close"></span></button>
+            </div>
+            <div class="replay-foot">
+                <div class="mode-toggle replay-speed" id="replaySpeed" role="radiogroup" aria-label="Replay speed">
+                    <button class="mode-btn" type="button" role="radio" aria-checked="false" data-speed="0.5">0.5×</button>
+                    <button class="mode-btn active" type="button" role="radio" aria-checked="true" data-speed="1">1×</button>
+                    <button class="mode-btn" type="button" role="radio" aria-checked="false" data-speed="2">2×</button>
+                    <button class="mode-btn" type="button" role="radio" aria-checked="false" data-speed="4">4×</button>
+                </div>
+                <p class="replay-pos" id="replayPos"></p>
             </div>
         </div>
     </main>
@@ -249,6 +276,52 @@
         </div>
     </div>
 
+    <!-- Versus over STUN-p2p-spec.md, from js/versus.js. -->
+    <div class="modal-backdrop hidden" id="versusModal">
+        <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="versusModalTitle">
+            <div class="modal-head">
+                <h2 id="versusModalTitle">Play someone nearby</h2>
+                <button class="icon-btn small" type="button" data-close-modal="versusModal" aria-label="Close">
+                    <span data-icon="close"></span>
+                </button>
+            </div>
+            <p class="mode-note vs-intro">
+                Both devices have to be on the same network: the same wifi, or one sharing a hotspot with the other.
+                You play the same pieces, and lines you clear push garbage up the other board. The first to top out loses.
+            </p>
+
+            <div class="vs-choose" id="vsChoose">
+                <button class="btn btn-primary pill" id="vsHostBtn" type="button"><span data-icon="users"></span>Host a match</button>
+                <form class="vs-join" id="vsJoinForm" autocomplete="off">
+                    <label for="vsJoinInput" class="modal-section-label">Or join with the code on the other screen</label>
+                    <div class="name-form">
+                        <input id="vsJoinInput" class="field vs-code-field" type="text" placeholder="Code" maxlength="12"
+                            spellcheck="false" autocapitalize="characters" autocorrect="off" enterkeyhint="go">
+                        <button class="btn btn-primary" type="submit">Join</button>
+                    </div>
+                </form>
+            </div>
+
+            <div class="vs-host" id="vsHostView" hidden>
+                <p class="modal-section-label">Join code</p>
+                <p class="code-big" id="vsCode"></p>
+                <div class="qr" id="vsQr"></div>
+                <div class="vs-row">
+                    <button class="btn btn-quiet pill" id="vsCopyLink" type="button"><span data-icon="link"></span><span id="vsCopyLabel">Copy link</span></button>
+                    <button class="btn btn-quiet pill" id="vsNewCode" type="button"><span data-icon="rotateCw"></span>New code</button>
+                </div>
+            </div>
+
+            <p class="vs-status" id="vsStatus" role="status" aria-live="polite"></p>
+
+            <div class="vs-row">
+                <button class="btn btn-primary pill" id="vsStartBtn" type="button" hidden>Start the match</button>
+                <button class="btn btn-primary pill" id="vsRetryBtn" type="button" hidden><span data-icon="rotateCw"></span>Try again</button>
+                <button class="btn btn-quiet pill" id="vsLeaveBtn" type="button" hidden>Leave</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-backdrop hidden" id="settingsModal">
         <div class="modal glass" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
             <div class="modal-head">
@@ -275,6 +348,10 @@
                 <span class="switch-state"></span><span class="switch" aria-hidden="true"></span>
             </button>
             <p id="autoNote" class="mode-note">Save a name first to add games automatically.</p>
+            <button class="setting-toggle" type="button" role="switch" aria-checked="true" data-setting="auto_replay">
+                <span>Play the replay when a game ends</span>
+                <span class="switch-state"></span><span class="switch" aria-hidden="true"></span>
+            </button>
 
             <p class="mode-note">
                 The leaderboard name is filled in whenever you add a game, so it is always the last one you used.

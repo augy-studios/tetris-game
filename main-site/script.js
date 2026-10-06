@@ -18,6 +18,8 @@
 
   const TYPES = ["I", "J", "L", "O", "S", "T", "Z"];
   const LINE_SCORES = [0, 100, 300, 500, 800];
+  // Garbage rows a clear sends the other board in a match, by lines cleared.
+  const ATTACK = [0, 0, 1, 2, 4];
 
   // Crockford's base 32: no I, L, O or U to misread when a seed is copied by hand.
   const SEED_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
@@ -101,6 +103,7 @@
   const holdCanvas = $("hold");
   const nextList = $("next");
   const nextCanvases = [...nextList.querySelectorAll("canvas")];
+  const oppCanvas = $("oppBoard");
   const pauseBtn = document.querySelector('.pad-btn[data-act="pause"]');
   const stats = { score: $("score"), level: $("level"), lines: $("lines") };
   const overlay = {
@@ -117,7 +120,7 @@
   };
 
   // Board cells hold a piece type, not a colour, so a theme change recolours
-  // pieces that have already landed.
+  // pieces that have already landed. "G" is garbage from the other board.
   const board = Array.from({ length: ROWS }, () => Array(COLS).fill(""));
 
   let tile = 0;
@@ -136,9 +139,15 @@
   let lines = 0;
   let level = 1;
   let pieces = 0; // locked this game; the leaderboard checks the score against it
-  // Every lock and hold this game. The leaderboard replays it to check the
-  // score (api/_lib/replay.js has the format).
+  // Every lock and hold this game, and in a match every load of garbage. The
+  // leaderboard replays it to check the score (api/_lib/replay.js has the
+  // format), and so does the replay here.
   let log = [];
+  // Per log entry, the moves of the piece it ended as [t, x, y, r], for the
+  // replay to show each one falling as it did; null for garbage. Not sent
+  // anywhere: a shared replay works its moves out again.
+  let trails = [];
+  let trail = []; // the piece in play's, so far
   let gameStart = 0; // the clock when this game began
   let dropPoints = 0; // scored by drops since the last log entry
   let dropInterval = 1000;
@@ -217,10 +226,20 @@
     return SHAPES[p.type][p.r].map(([dx, dy]) => [p.x + dx, p.y + dy]);
   }
 
-  // Rows above the board (y < 0) are open space, but the walls and floor are not.
-  function collides(p) {
+  // The cells a piece covers, as one value, so two rotation states that
+  // cover the same cells (S, Z and I have them) compare equal.
+  function cellsKey(p) {
+    return cellsOf(p)
+      .map(([x, y]) => (y + 8) * 16 + x + 4)
+      .sort((a, b) => a - b)
+      .join();
+  }
+
+  // Rows above the board (y < 0) are open space, but the walls and floor are
+  // not. grid is the board, or a replay's.
+  function collides(p, grid = board) {
     return cellsOf(p).some(
-      ([x, y]) => x < 0 || x >= COLS || y >= ROWS || (y >= 0 && board[y][x] !== "")
+      ([x, y]) => x < 0 || x >= COLS || y >= ROWS || (y >= 0 && grid[y][x] !== "")
     );
   }
 
@@ -230,9 +249,9 @@
 
   // Just above the board, then straight into view when there is room, as the
   // guideline does.
-  function spawnAt(type) {
+  function spawnAt(type, grid = board) {
     const p = { type, r: 0, x: 3, y: -1 };
-    if (!collides(p) && !collides({ ...p, y: 0 })) p.y = 0;
+    if (!collides(p, grid) && !collides({ ...p, y: 0 }, grid)) p.y = 0;
     return p;
   }
 
@@ -243,6 +262,7 @@
     lastDrop = clock;
     autoTarget = null;
     dirty = true;
+    traced();
     drawMinis();
 
     if (collides(cur)) {
@@ -252,9 +272,23 @@
     lowestY = cur.y;
   }
 
+  // Where the piece in play is now, added to its trail. Moves within one
+  // millisecond keep only the last, so a hard drop is one jump.
+  function traced() {
+    const point = [Math.round(clock - gameStart), cur.x, cur.y, cur.r];
+    if (trail.length && trail[trail.length - 1][0] === point[0]) trail[trail.length - 1] = point;
+    else trail.push(point);
+  }
+
   function record(entry) {
     log.push([...entry, Math.round(clock - gameStart), dropPoints]);
     dropPoints = 0;
+    if (entry[0] === "G") {
+      trails.push(null); // garbage moves no piece
+      return;
+    }
+    trails.push(trail);
+    trail = [];
   }
 
   function lock() {
@@ -272,7 +306,11 @@
       return;
     }
 
-    clearLines();
+    const cleared = clearLines();
+    if (match && exchangeGarbage(cleared)) {
+      endGame(); // topped out: garbage pushed the stack off the top
+      return;
+    }
     canHold = true;
     spawn(takeNext());
     updateStats();
@@ -292,22 +330,32 @@
     return cleared;
   }
 
+  // Pushes rows of garbage in from the bottom of grid, each with a gap at
+  // hole. True when that pushes anything off the top.
+  function addGarbage(grid, rows, hole) {
+    const lost = grid.slice(0, rows).some((row) => row.some((c) => c !== ""));
+    grid.splice(0, rows);
+    for (let i = 0; i < rows; i++) grid.push(Array.from({ length: COLS }, (_, x) => (x === hole ? "" : "G")));
+    return lost;
+  }
+
   const levelFor = (lines) => 1 + Math.floor(lines / 10);
 
   function clearLines() {
     const cleared = removeFullRows(board);
-    if (!cleared) return;
+    if (!cleared) return 0;
 
     lines += cleared;
     score += LINE_SCORES[cleared] * level;
     level = levelFor(lines);
     dropInterval = Math.max(80, 1000 - (level - 1) * 60);
+    return cleared;
   }
 
   /* -- Moves -- */
 
   function playing() {
-    return cur !== null && !paused && !over && !suspended;
+    return cur !== null && !paused && !over && !suspended && !countdownEnd;
   }
 
   function tryMove(dx, dy) {
@@ -315,6 +363,7 @@
     if (collides(moved)) return false;
     cur = moved;
     dirty = true;
+    traced();
     return true;
   }
 
@@ -336,13 +385,13 @@
   }
 
   // The piece turned with the SRS kicks, or null when every kick is blocked.
-  function rotated(p, dir) {
+  function rotated(p, dir, grid = board) {
     const to = (p.r + (dir > 0 ? 1 : 3)) % 4;
     const kicks = (p.type === "I" ? KICKS.I : KICKS.JLSTZ)[`${p.r}>${to}`];
     for (const [kx, ky] of kicks) {
       // The kick tables have y pointing up; the board's y points down.
       const test = { ...p, r: to, x: p.x + kx, y: p.y - ky };
-      if (!collides(test)) return test;
+      if (!collides(test, grid)) return test;
     }
     return null;
   }
@@ -353,6 +402,7 @@
     if (!next) return;
     cur = next;
     dirty = true;
+    traced();
     afterMove();
   }
 
@@ -414,12 +464,14 @@
     else send();
   }
 
-  // A new game, dealt from the seed given or from a fresh random one.
-  function reset(chosen = "") {
+  // A new game, dealt from the seed given or from a fresh random one. In a
+  // match, matchId is the match's and the seed is the host's.
+  function reset(chosen = "", matchId = 0) {
     chosenSeed = chosen !== "";
     seed = chosenSeed ? chosen : randomSeed();
     deal = dealer(seed);
     closeReplay(false);
+    forgetShared();
     board.forEach((row) => row.fill(""));
     queue = [];
     hold = null;
@@ -429,6 +481,8 @@
     level = 1;
     pieces = 0;
     log = []; // a new array: the last game's is still on its way to the server
+    trails = [];
+    trail = [];
     gameStart = clock;
     dropPoints = 0;
     dropInterval = 1000;
@@ -436,28 +490,55 @@
     over = false;
     autoplay = false;
     assisted = false;
+    countdownEnd = 0;
+    match = matchId ? { id: matchId, result: null, why: "" } : null;
+    incoming = 0;
+    received = 0;
+    sent = 0;
+    garbageHoles = seededRandom(`${seed}/garbage`);
     releaseAll();
     hideOverlay();
-    announce("tetris:start", { seeded: chosenSeed });
+    announce("tetris:start", { seeded: chosenSeed, versus: Boolean(match) });
     spawn(takeNext());
     updateStats();
     syncPauseButton();
+  }
+
+  // R, Play again and Restart. With another device, the next match instead,
+  // which js/versus.js starts; a match under way cannot be walked out of.
+  function newGame() {
+    if (versus) {
+      if (match && !over) return;
+      document.dispatchEvent(new CustomEvent("tetris:rematch"));
+      return;
+    }
+    reset();
   }
 
   function endGame() {
     over = true;
     paused = false;
     autoplay = false;
+    countdownEnd = 0;
     releaseAll();
     dirty = true;
     updateStats();
     showOverlay("over");
     syncPauseButton();
-    announce("tetris:over", { score, lines, level, pieces, log, assisted });
+    announce("tetris:over", {
+      score,
+      lines,
+      level,
+      pieces,
+      log,
+      assisted,
+      versus: Boolean(match),
+      match: match?.id ?? 0,
+    });
   }
 
   function setPaused(value) {
-    if (over || cur === null || paused === value) return;
+    if (over || cur === null || countdownEnd || paused === value) return;
     paused = value;
     releaseAll();
     if (paused) showOverlay("paused");
@@ -465,57 +546,125 @@
     syncPauseButton();
   }
 
-  function showOverlay(kind) {
-    if (kind === "over") {
-      overlay.title.textContent = "Game over";
-      overlay.sub.textContent = `Score ${score.toLocaleString()}`;
-      overlay.sub.hidden = false;
-      overlay.primary.textContent = "Play again";
-      overlay.primary.dataset.gameAct = "reset";
-      overlay.secondary.textContent = "Watch replay";
-      overlay.secondary.dataset.gameAct = "replay";
-      overlay.secondary.hidden = log.length === 0;
-      overlay.hint.textContent = "Or press R.";
-      overlay.touchHint.hidden = true;
-    } else {
-      overlay.title.textContent = "Paused";
-      overlay.sub.hidden = true;
-      overlay.primary.textContent = "Resume";
-      overlay.primary.dataset.gameAct = "resume";
-      overlay.secondary.textContent = "Restart";
-      overlay.secondary.dataset.gameAct = "reset";
-      overlay.secondary.hidden = false;
-      overlay.hint.textContent = "Press P to resume.";
-      overlay.touchHint.hidden = false;
+  let overlayKind = null; // what the overlay is showing, or null when hidden
+  let shownSeed = ""; // the seed in the overlay's field
+
+  // What each screen over the board says and offers. Buttons are
+  // [label, action]; seed is the seed to show, when there is one.
+  function overlayFor(kind) {
+    const scoreLine = `Score ${score.toLocaleString()}`;
+    switch (kind) {
+      case "over":
+        return {
+          title: !match?.result
+            ? "Game over"
+            : match.result === "won"
+              ? "You won"
+              : match.result === "lost"
+                ? "You lost"
+                : "Match over",
+          sub: match?.why ? `${scoreLine}. ${match.why}` : scoreLine,
+          primary: [versus ? "Rematch" : "Play again", "reset"],
+          secondary: log.length ? ["Watch replay", "replay"] : null,
+          seed: versus ? null : seed,
+          hint: versus ? "Or press R for a rematch." : "Or press R.",
+        };
+      case "countdown":
+        return { title: "3", sub: "Get ready" };
+      case "loading":
+        return { title: "Loading replay" };
+      case "shared":
+        return {
+          title: "Shared replay",
+          sub: sharedLine(),
+          primary: ["New game", "reset"],
+          secondary: ["Watch again", "replay"],
+          seed: watching.seed,
+          hint: "Or press R for a new game.",
+        };
+      case "damaged":
+        return {
+          title: "Replay link broken",
+          sub: "That replay link is damaged or incomplete, so it cannot be played back.",
+          primary: ["New game", "reset"],
+          hint: "Or press R.",
+        };
+      default:
+        return {
+          title: "Paused",
+          primary: ["Resume", "resume"],
+          // A match keeps going on the other device; restarting would leave it.
+          secondary: match ? null : ["Restart", "reset"],
+          seed: versus ? null : seed,
+          hint: "Press P to resume.",
+          touch: true,
+        };
     }
-    overlay.seedInput.value = seed;
+  }
+
+  function showOverlay(kind) {
+    const o = overlayFor(kind);
+    overlayKind = kind;
+    overlay.title.textContent = o.title;
+    overlay.sub.textContent = o.sub ?? "";
+    overlay.sub.hidden = !o.sub;
+    for (const [btn, spec] of [
+      [overlay.primary, o.primary],
+      [overlay.secondary, o.secondary],
+    ]) {
+      btn.hidden = !spec;
+      if (spec) {
+        btn.textContent = spec[0];
+        btn.dataset.gameAct = spec[1];
+      }
+    }
+    shownSeed = o.seed ?? "";
+    overlay.seedForm.hidden = !o.seed;
+    overlay.seedInput.value = shownSeed;
     overlay.seedCopy.textContent = "Copy";
+    overlay.hint.textContent = o.hint ?? "";
+    overlay.hint.hidden = !o.hint;
+    overlay.touchHint.hidden = !o.touch;
     overlay.root.classList.remove("hidden");
   }
 
   function hideOverlay() {
+    overlayKind = null;
     // A field left focused under the hidden overlay would swallow the game's keys.
     if (overlay.root.contains(document.activeElement)) document.activeElement.blur();
     overlay.root.classList.add("hidden");
   }
 
-  // Copies this game's seed, whatever has been typed over it since.
-  async function copySeed() {
-    const input = overlay.seedInput;
-    input.value = seed;
-    let copied = false;
+  // Copies the clipboard's way, or by the older copy command from a field
+  // made for it. True when it went.
+  async function copyText(text) {
     try {
-      await navigator.clipboard.writeText(seed);
-      copied = true;
+      await navigator.clipboard.writeText(text);
+      return true;
     } catch {
-      // No clipboard access: select it, for the older copy command or by hand.
-      input.select();
+      const field = document.createElement("textarea");
+      field.value = text;
+      field.setAttribute("readonly", "");
+      field.style.position = "fixed";
+      field.style.opacity = "0";
+      document.body.appendChild(field);
+      field.select();
+      let copied = false;
       try {
         copied = document.execCommand("copy");
       } catch {
         copied = false;
       }
+      field.remove();
+      return copied;
     }
+  }
+
+  // Copies the seed on show, whatever has been typed over it since.
+  async function copySeed() {
+    const input = overlay.seedInput;
+    input.value = shownSeed;
+    const copied = await copyText(shownSeed);
     overlay.seedCopy.textContent = copied ? "Copied" : "Copy";
     if (!copied) input.select();
   }
@@ -529,12 +678,12 @@
       overlay.seedInput.focus();
       return;
     }
-    reset(chosen);
+    if (!versus) reset(chosen);
   });
 
-  // The game's numbers, or the replay's at the move on screen.
+  // The game's numbers, or the replay's for the piece on screen.
   function updateStats() {
-    const v = replay ? replay.frames[replay.at] : { score, level, lines };
+    const v = replay ? replay.frames[replay.i] : { score, level, lines };
     stats.score.textContent = v.score.toLocaleString();
     stats.level.textContent = String(v.level);
     stats.lines.textContent = String(v.lines);
@@ -570,7 +719,10 @@
   let autoAt = 0;
 
   function toggleAutoplay() {
-    if (over) reset();
+    if (over || cur === null) {
+      newGame();
+      if (versus) return;
+    }
     autoplay = !autoplay;
     if (!autoplay) return;
     assisted = true;
@@ -580,21 +732,22 @@
     setPaused(false);
   }
 
-  // How good the board looks with p locked where it is. Higher is better.
-  function evaluate(p) {
+  // How good grid looks with p locked where it is, by weights w. Higher is
+  // better.
+  function evaluate(p, grid = board, w = AUTO_WEIGHTS) {
     const cells = cellsOf(p);
     if (cells.some(([, y]) => y < 0)) return -Infinity; // would lock out
-    const grid = board.map((row) => row.map((c) => c !== ""));
-    for (const [x, y] of cells) grid[y][x] = true;
+    const filled = grid.map((row) => row.map((c) => c !== ""));
+    for (const [x, y] of cells) filled[y][x] = true;
 
     let cleared = 0;
     for (let y = ROWS - 1; y >= 0; y--) {
-      if (grid[y].every(Boolean)) {
-        grid.splice(y, 1);
+      if (filled[y].every(Boolean)) {
+        filled.splice(y, 1);
         cleared++;
       }
     }
-    for (let i = 0; i < cleared; i++) grid.unshift(Array(COLS).fill(false));
+    for (let i = 0; i < cleared; i++) filled.unshift(Array(COLS).fill(false));
 
     const ys = cells.map(([, y]) => y);
     const height = ROWS - (Math.min(...ys) + Math.max(...ys) + 1) / 2;
@@ -604,8 +757,8 @@
     for (let y = 0; y < ROWS; y++) {
       let prev = true;
       for (let x = 0; x < COLS; x++) {
-        if (grid[y][x] !== prev) rowTransitions++;
-        prev = grid[y][x];
+        if (filled[y][x] !== prev) rowTransitions++;
+        prev = filled[y][x];
       }
       if (!prev) rowTransitions++;
     }
@@ -618,20 +771,19 @@
       let covered = false;
       let depth = 0;
       for (let y = 0; y < ROWS; y++) {
-        const filled = grid[y][x];
-        if (filled !== prev) colTransitions++;
-        prev = filled;
-        if (filled) covered = true;
+        const here = filled[y][x];
+        if (here !== prev) colTransitions++;
+        prev = here;
+        if (here) covered = true;
         else if (covered) holes++;
 
-        const walled = (x === 0 || grid[y][x - 1]) && (x === COLS - 1 || grid[y][x + 1]);
-        if (!filled && walled) wells += ++depth;
+        const walled = (x === 0 || filled[y][x - 1]) && (x === COLS - 1 || filled[y][x + 1]);
+        if (!here && walled) wells += ++depth;
         else depth = 0;
       }
       if (!prev) colTransitions++;
     }
 
-    const w = AUTO_WEIGHTS;
     return (
       w.height * height +
       w.cleared * cleared +
@@ -694,101 +846,328 @@
     }
   }
 
-  /* -- Replay --
-     The game just finished, played back from its log one placement at a
-     time: the board as it stood, with the next piece drawn where it locked.
-     The seed deals the same pieces again, so hold and next show what the
-     player saw. It keeps the pace the game was played at, less long thinks,
-     and plays, pauses and steps like a video. */
+  /* -- Versus --
+     js/versus.js pairs this device with another on the same network and
+     drives these through window.uwuTetris. Each device plays its own board
+     from the host's seed. Lines cleared send garbage to the other board,
+     first cancelling any on its way here, and the first board to top out
+     loses. A match is never ranked: the server's check knows nothing of
+     garbage. */
 
-  const REPLAY_SPEEDS = [1, 2, 4];
-  const REPLAY_MAX_STEP_MS = 1500; // longest one placement stays up, at 1x
+  let versus = false; // with another device, from the first match until leaving
+  let match = null; // { id, result, why } for a match game; null alone
+  let countdownEnd = 0; // performance.now() a match's countdown ends; 0 when none
+  let incoming = 0; // garbage rows on the way, landing with the next lock that clears nothing
+  let received = 0; // of the other board's running total, the rows counted into incoming
+  let sent = 0; // rows sent to the other board this match, a running total
+  let garbageHoles = null; // where each load's gap goes: the seed's, so a replay agrees
+  let opponent = null; // the other board, as it last arrived
+
+  // A cleared line first cancels garbage on its way here, then goes to the
+  // other board. A lock that clears nothing takes all that is waiting, and
+  // true means it pushed the stack off the top.
+  function exchangeGarbage(cleared) {
+    if (cleared) {
+      const attack = ATTACK[cleared];
+      const cancel = Math.min(incoming, attack);
+      incoming -= cancel;
+      sent += attack - cancel;
+      return false;
+    }
+    if (!incoming) return false;
+    const rows = Math.min(incoming, ROWS);
+    const hole = Math.floor(garbageHoles() * COLS);
+    incoming = 0;
+    record(["G", rows, hole]);
+    return addGarbage(board, rows, hole);
+  }
+
+  // Both devices start the match's game at once, after the countdown.
+  function startMatch(id, matchSeed, delay) {
+    versus = true;
+    reset(matchSeed, id);
+    if (delay > 0) {
+      countdownEnd = performance.now() + delay;
+      showOverlay("countdown");
+    }
+  }
+
+  // The host's call: "won", "lost" or "none". A board still in play stops
+  // there, so the winner's game ends too.
+  function setMatchResult(result, why) {
+    if (!match || match.result) return;
+    match.result = result;
+    match.why = why;
+    if (!over) endGame();
+    else if (overlayKind === "over") showOverlay("over");
+    if (replay?.source?.match === match) prepareLink(replay);
+  }
+
+  // Leaving the other device. A match still being played ends there, and
+  // the next game is a game alone.
+  function endVersus() {
+    versus = false;
+    if (match && !over) setMatchResult("none", "You left the match.");
+    else if (overlayKind === "over") showOverlay("over");
+    setOpponent(null);
+  }
+
+  // This board as the other device draws it.
+  function snapshot() {
+    return {
+      match: match?.id ?? 0,
+      cells: board.map((row) => row.map((c) => c || ".").join("")).join(""),
+      cur: cur && !over ? [cur.type, cur.r, cur.x, cur.y] : null,
+      score,
+      lines,
+      sent,
+      over,
+    };
+  }
+
+  // The other board's running total of garbage sent; what is new is on its way.
+  function setOpponentSent(total) {
+    if (!match || over || total <= received) return;
+    incoming += total - received;
+    received = total;
+    dirty = true;
+  }
+
+  function setOpponent(view) {
+    opponent = view;
+    drawOpponent();
+  }
+
+  /* -- Replay --
+     A finished game played back on the board: every piece falling, turning
+     and sliding as it did, at the pace it was played, or half, twice or four
+     times that. It plays, pauses and scrubs like a video, and steps a piece
+     at a time, landing on each where it locked, ringed, to look at. The seed
+     deals the same pieces again, so hold and next show what the player saw.
+     It opens by itself when a game ends unless Settings says not to
+     (js/app.js), and Share makes a link to it (Replay links, below). */
+
+  // The same speeds as the word rain game's replay. The one picked last is
+  // remembered in this browser.
+  const REPLAY_SPEEDS = [0.5, 1, 2, 4];
+  const SPEED_KEY = "uwutetris.replaySpeed";
 
   const replayUI = {
     seek: $("replaySeek"),
+    time: $("replayTime"),
     pos: $("replayPos"),
     play: $("replayPlay"),
     speed: $("replaySpeed"),
+    share: $("replayShare"),
   };
 
-  // { frames, at, playing, elapsed, speed } while a replay is open.
+  // While a replay is open: { frames, total, i, t, playing, link, source }.
+  // i is the frame on screen and t the game's time in ms.
   let replay = null;
+  let replaySpeed = 1;
+  let shareNote = ""; // "Link copied" and the like, for a moment, in place of the position
+  let shareNoteTimer = 0;
 
-  // One frame per log entry, the game just before it, then one for the end.
-  // Must deal, hold, lock and score as the game does.
-  function replayFrames(entries, text) {
-    const next = dealer(text);
-    const upcoming = [];
-    const take = () => {
-      while (upcoming.length <= NEXT_COUNT) upcoming.push(next());
-      return upcoming.shift();
-    };
-    const grid = Array.from({ length: ROWS }, () => Array(COLS).fill(""));
-    const frames = [];
-    let hold = null;
-    let canHold = true;
-    let score = 0;
-    let lines = 0;
-    let level = 1;
-    let lastT = 0;
-
-    const frame = (piece, held, ms) => ({
-      board: grid.map((row) => [...row]),
-      hold,
-      canHold,
-      next: upcoming.slice(0, NEXT_COUNT),
-      score,
-      lines,
-      level,
-      piece, // where the piece in play locked; null for a hold, or at the end
-      held, // the piece put on hold, for a hold
-      ms, // how long the piece was in play before that
-    });
-
-    take(); // the first piece
-    for (const entry of entries) {
-      const [t, points] = entry.slice(-2);
-      if (entry[0] === "H") {
-        frames.push(frame(null, entry[1], t - lastT));
-        if (hold === null) take();
-        hold = entry[1];
-        canHold = false;
-      } else {
-        const [type, r, x, y] = entry;
-        const piece = { type, r, x, y };
-        frames.push(frame(piece, null, t - lastT));
-        let above = false;
-        for (const [cx, cy] of cellsOf(piece)) {
-          if (cy < 0) above = true;
-          else grid[cy][cx] = type;
-        }
-        canHold = true;
-        if (!above) {
-          const cleared = removeFullRows(grid);
-          lines += cleared;
-          score += LINE_SCORES[cleared] * level;
-          level = levelFor(lines);
-          take();
-        }
-      }
-      score += points;
-      lastT = t;
+  // The game a log describes, an entry at a time: what dealing, holding,
+  // locking and garbage did. Must deal, hold, lock and score as the game does.
+  class Sim {
+    constructor(text) {
+      this.deal = dealer(text);
+      this.upcoming = [];
+      this.grid = Array.from({ length: ROWS }, () => Array(COLS).fill(""));
+      this.hold = null;
+      this.canHold = true;
+      this.score = 0;
+      this.lines = 0;
+      this.level = 1;
+      this.over = false;
+      this.cur = this.take();
     }
-    frames.push(frame(null, null, 0));
+
+    take() {
+      while (this.upcoming.length <= NEXT_COUNT) this.upcoming.push(this.deal());
+      return this.upcoming.shift();
+    }
+
+    // What the side column and the board showed.
+    view() {
+      return {
+        board: this.grid.map((row) => [...row]),
+        hold: this.hold,
+        canHold: this.canHold,
+        next: this.upcoming.slice(0, NEXT_COUNT),
+        score: this.score,
+        lines: this.lines,
+        level: this.level,
+      };
+    }
+
+    // One entry without its time: [type, r, x, y], ["H", type] or
+    // ["G", rows, hole], and the drop points that came with it.
+    apply(entry, points) {
+      this.score += points;
+      if (entry[0] === "H") {
+        const incoming = this.hold ?? this.take();
+        this.hold = this.cur;
+        this.cur = incoming;
+        this.canHold = false;
+        return;
+      }
+      if (entry[0] === "G") {
+        if (addGarbage(this.grid, entry[1], entry[2])) this.over = true;
+        return;
+      }
+      const [type, r, x, y] = entry;
+      let above = false;
+      for (const [cx, cy] of cellsOf({ type, r, x, y })) {
+        if (cy < 0) above = true;
+        else this.grid[cy][cx] = type;
+      }
+      this.canHold = true;
+      if (above) {
+        this.over = true;
+        return;
+      }
+      const cleared = removeFullRows(this.grid);
+      this.lines += cleared;
+      this.score += LINE_SCORES[cleared] * this.level;
+      this.level = levelFor(this.lines);
+      this.cur = this.take();
+    }
+  }
+
+  // One frame per piece in play, the game as it stood when that piece came
+  // out, then one for the end. paths are the trails the game kept, or null
+  // for a shared game, whose pieces' moves are worked out when shown.
+  function replayFrames(entries, text, paths) {
+    const sim = new Sim(text);
+    const frames = [];
+    let start = 0;
+    let piece = 0; // pieces locked, counting this frame's
+    entries.forEach((entry, k) => {
+      const [t, points] = entry.slice(-2);
+      const move = entry.slice(0, -2);
+      if (move[0] !== "G") {
+        const held = move[0] === "H";
+        if (!held) piece++;
+        frames.push({
+          ...sim.view(),
+          type: sim.cur,
+          start,
+          end: Math.max(start, t),
+          place: held ? null : { type: move[0], r: move[1], x: move[2], y: move[3] },
+          held,
+          piece,
+          path: paths?.[k]?.length ? paths[k] : null,
+        });
+      }
+      sim.apply(move, points);
+      start = Math.max(start, t);
+    });
+    frames.push({ ...sim.view(), type: null, start, end: start, place: null, held: false, piece, path: [] });
     return frames;
   }
 
+  // A shared game keeps where each piece locked, not how it got there. The
+  // fewest moves from where it came out to there, spread over the time it
+  // was in play, so it still turns, slides and falls into place.
+  function synthPath(f) {
+    const grid = f.board;
+    const from = spawnAt(f.type, grid);
+    const goal = cellsKey(f.place);
+    const key = (p) => `${p.x},${p.y},${p.r}`;
+    const parent = new Map([[key(from), null]]);
+    const queue = [from];
+    let found = null;
+    for (let q = 0; q < queue.length; q++) {
+      const p = queue[q];
+      if (cellsKey(p) === goal) {
+        found = p;
+        break;
+      }
+      const options = [
+        f.type === "O" ? null : rotated(p, 1, grid),
+        f.type === "O" ? null : rotated(p, -1, grid),
+        { ...p, x: p.x - 1 },
+        { ...p, x: p.x + 1 },
+        { ...p, y: p.y + 1 },
+      ];
+      for (const n of options) {
+        if (!n || collides(n, grid) || parent.has(key(n))) continue;
+        parent.set(key(n), p);
+        queue.push(n);
+      }
+    }
+
+    // Out of reach, which a hand-edited link could ask for: it appears there.
+    const route = found ? [] : [f.place, from];
+    for (let p = found; p; p = parent.get(key(p))) route.push(p);
+    route.reverse();
+    const span = f.end - f.start;
+    return route.map((p, j) => [f.start + (span * j) / route.length, p.x, p.y, p.r]);
+  }
+
+  // The piece in play at time t in frame f, or null for the end.
+  function replayPiece(f, t) {
+    if (!f.type) return null;
+    if (f.place && t >= f.end) return f.place; // about to lock: where it did
+    if (!f.path) {
+      // A held piece in a shared game: shown where it came out.
+      const s = spawnAt(f.type, f.board);
+      f.path = f.place ? synthPath(f) : [[f.start, s.x, s.y, s.r]];
+    }
+    let point = f.path[0];
+    for (const p of f.path) {
+      if (p[0] > t) break;
+      point = p;
+    }
+    return { type: f.type, x: point[1], y: point[2], r: point[3] };
+  }
+
+  // A match and how it went, as a replay link keeps them: bit 0 for a
+  // match, bits 1 and 2 for won (1) or lost (2).
+  function resultFlags(m) {
+    if (!m) return 0;
+    return 1 | (m.result === "won" ? 2 : m.result === "lost" ? 4 : 0);
+  }
+
   function openReplay() {
+    if (replay) return;
+    if (watching) {
+      startReplay(watching.frames, watching.link, null);
+      return;
+    }
     if (!over || !log.length) return;
-    replay = { frames: replayFrames(log, seed), at: 0, playing: true, elapsed: 0, speed: 0 };
-    replayUI.seek.max = String(replay.frames.length - 1);
+    startReplay(replayFrames(log, seed, trails), null, { log, seed, match });
+  }
+
+  // source is the game to pack into a link: { log, seed, match }.
+  function startReplay(frames, link, source) {
+    const r = { frames, total: frames[frames.length - 1].start, i: 0, t: 0, playing: true, link, source, shown: -1 };
+    replay = r;
+    replayUI.seek.max = String(r.total);
+    setShareNote("");
     hideOverlay();
     game.classList.add("replaying");
     fit();
     showReplayFrame();
+    if (!link && source) prepareLink(r);
   }
 
-  // Back to the game over screen, or straight on when a new game is starting.
+  // Packed in the background, so Share can hand the link over at once. Packed
+  // again when a match's result arrives after its replay has opened.
+  function prepareLink(r) {
+    const job = {};
+    r.link = null;
+    r.packing = job;
+    packReplay({ ...r.source, flags: resultFlags(r.source.match) })
+      .then((packed) => {
+        if (packed && r.packing === job) r.link = replayLink(packed);
+      })
+      .catch(() => {});
+  }
+
+  // Back to the screen it came from, or straight on when a new game is starting.
   function closeReplay(backToOverlay = true) {
     if (!replay) return;
     replay = null;
@@ -798,61 +1177,173 @@
     dirty = true;
     drawMinis();
     updateStats();
-    if (backToOverlay) showOverlay("over");
+    if (backToOverlay) showOverlay(watching ? "shared" : "over");
   }
+
+  const clockText = (ms) => {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+  };
+
+  // Only written when it differs: this runs every frame while playing.
+  const put = (el, text) => {
+    if (el.textContent !== text) el.textContent = text;
+  };
+  const attr = (el, name, value) => {
+    if (el.getAttribute(name) !== value) el.setAttribute(name, value);
+  };
 
   function showReplayFrame() {
-    const { frames, at, playing, speed } = replay;
+    const { frames, i, t, total, playing } = replay;
+    const f = frames[i];
     const last = frames.length - 1;
-    const pos = at === last ? "Game over" : `${at + 1} / ${last}${frames[at].held ? " · hold" : ""}`;
+    const pos =
+      i === last
+        ? "Game over"
+        : f.held
+          ? `Piece ${f.piece + 1} of ${frames[last].piece}, held`
+          : `Piece ${f.piece} of ${frames[last].piece}`;
     dirty = true;
-    drawMinis();
-    updateStats();
-    replayUI.seek.value = String(at);
-    replayUI.seek.setAttribute("aria-valuetext", pos);
-    replayUI.pos.textContent = pos;
-    replayUI.play.dataset.playing = String(playing);
-    replayUI.play.setAttribute("aria-label", playing ? "Pause replay" : "Play replay");
-    replayUI.speed.textContent = `${REPLAY_SPEEDS[speed]}×`;
+    if (replay.shown !== i) {
+      replay.shown = i;
+      drawMinis();
+      updateStats();
+    }
+    put(replayUI.time, `${clockText(t)} / ${clockText(total)}`);
+    put(replayUI.pos, shareNote || pos);
+    replayUI.seek.value = String(Math.round(t));
+    attr(replayUI.seek, "aria-valuetext", `${clockText(t)}, ${pos}`);
+    attr(replayUI.play, "data-playing", String(playing));
+    attr(replayUI.play, "aria-label", playing ? "Pause replay" : "Play replay");
+    // Read out while stepping, not sixty times a second while playing.
+    attr(replayUI.pos, "aria-live", playing ? "off" : "polite");
   }
 
-  function replayGo(at) {
-    replay.at = Math.max(0, Math.min(replay.frames.length - 1, at));
-    replay.elapsed = 0;
+  // The frame on screen at time t: the first piece still in play then, or
+  // the end once the game is over.
+  function frameAt(t) {
+    const { frames, total } = replay;
+    const last = frames.length - 1;
+    if (t >= total) return last;
+    let lo = 0;
+    let hi = last;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (frames[mid].end < t) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  }
+
+  // Seeking or stepping stops play, to look at the move.
+  function replaySeek(t) {
+    replay.playing = false;
+    replay.t = Math.max(0, Math.min(replay.total, t));
+    replay.i = frameAt(replay.t);
     showReplayFrame();
   }
 
-  // Stepping or seeking stops play, to look at the move.
-  function replaySeek(at) {
+  // A step lands on a piece where it locked. Forward from partway through
+  // a piece goes to its lock, back goes to the lock before.
+  function replayStep(dir) {
+    const { frames } = replay;
+    const last = frames.length - 1;
+    let { i, t } = replay;
+    if (dir > 0) {
+      if (i < last && t < frames[i].end) t = frames[i].end;
+      else if (i < last) t = frames[++i].end;
+    } else if (i > 0) {
+      t = frames[--i].end;
+    } else {
+      t = 0;
+    }
     replay.playing = false;
-    replayGo(at);
+    replay.i = i;
+    replay.t = t;
+    showReplayFrame();
   }
 
   // Play from the end starts again from the top.
   function replayToggle() {
     replay.playing = !replay.playing;
-    if (replay.playing && replay.at === replay.frames.length - 1) replayGo(0);
-    else showReplayFrame();
+    if (replay.playing && replay.i === replay.frames.length - 1) {
+      replay.i = 0;
+      replay.t = 0;
+    }
+    showReplayFrame();
   }
 
-  function replaySpeed() {
-    replay.speed = (replay.speed + 1) % REPLAY_SPEEDS.length;
-    showReplayFrame();
+  // A replay that is playing goes on at the new pace from where it is.
+  function setReplaySpeed(speed, save = true) {
+    if (!REPLAY_SPEEDS.includes(speed)) return;
+    replaySpeed = speed;
+    if (save) {
+      try {
+        localStorage.setItem(SPEED_KEY, String(speed));
+      } catch {
+        // Kept for this page view only.
+      }
+    }
+    replayUI.speed.querySelectorAll("[data-speed]").forEach((el) => {
+      const on = Number(el.dataset.speed) === speed;
+      el.classList.toggle("active", on);
+      el.setAttribute("aria-checked", String(on));
+    });
   }
 
   function replayTick(dt) {
     const { frames } = replay;
     const last = frames.length - 1;
-    const start = replay.at;
-    replay.elapsed += dt * REPLAY_SPEEDS[replay.speed];
-    while (replay.at < last) {
-      const ms = Math.min(frames[replay.at].ms, REPLAY_MAX_STEP_MS);
-      if (replay.elapsed < ms) break;
-      replay.elapsed -= ms;
-      replay.at++;
+    replay.t = Math.min(replay.total, replay.t + dt * replaySpeed);
+    while (replay.i < last && replay.t > frames[replay.i].end) replay.i++;
+    if (replay.t >= replay.total) {
+      replay.i = last;
+      replay.playing = false;
     }
-    if (replay.at === last) replay.playing = false;
-    if (replay.at !== start) showReplayFrame();
+    showReplayFrame();
+  }
+
+  function setShareNote(text) {
+    clearTimeout(shareNoteTimer);
+    shareNote = text;
+    if (text) {
+      shareNoteTimer = setTimeout(() => {
+        shareNote = "";
+        if (replay) showReplayFrame();
+      }, 2500);
+    }
+    if (replay) showReplayFrame();
+  }
+
+  // Through the device's share sheet where it has one, the clipboard otherwise.
+  async function shareReplay() {
+    const r = replay;
+    if (!r) return;
+    if (!r.link) {
+      replayUI.share.disabled = true;
+      try {
+        const packed = await packReplay({ ...r.source, flags: resultFlags(r.source.match) });
+        if (packed) r.link = replayLink(packed);
+      } finally {
+        replayUI.share.disabled = false;
+      }
+      if (!r.link) {
+        setShareNote("Could not make a link");
+        return;
+      }
+    }
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Tetris replay", text: "Watch this game of Tetris.", url: r.link });
+        if (replay === r) setShareNote("Shared");
+        return;
+      } catch (err) {
+        // Dismissed: nothing to say. Refused or unsupported here: copy instead.
+        if (err?.name === "AbortError") return;
+      }
+    }
+    const copied = await copyText(r.link);
+    if (replay === r) setShareNote(copied ? "Link copied" : "Copy failed");
   }
 
   // The game's keys and pad, while a replay is open: left and right step,
@@ -861,10 +1352,10 @@
   function replayPress(action) {
     switch (action) {
       case "left":
-        replaySeek(replay.at - 1);
+        replayStep(-1);
         return true;
       case "right":
-        replaySeek(replay.at + 1);
+        replayStep(1);
         return true;
       case "pause":
       case "hard":
@@ -878,6 +1369,290 @@
     }
   }
 
+  /* -- Replay links --
+     A link holds the whole game, so nothing is stored anywhere, and it opens
+     offline once the site has been visited. In the spirit of the chess
+     game's links, which store each move as its place in the list of legal
+     moves, each lock here is its place in the list of spots the piece could
+     have dropped straight to, best first by the autoplay's judgement: a
+     sound move is a small number, and small numbers pack tight. A tuck or a
+     spin under an overhang is spelt out instead. Times are kept to the
+     nearest step of 0.1 s, coarser the longer the game, and the lot is
+     deflated, so a long game costs a few characters a piece.
+
+     Bytes: version (high bit set when deflated), then flags, time step,
+     seed length, the seed, the entry count, a rank per entry, each entry's
+     time since the one before in steps, each entry's drop points, and the
+     extra bytes ranks LINK_GARBAGE and LINK_ELSEWHERE need, in order. */
+
+  const LINK_VERSION = 1;
+  // Frozen: links already shared rank their spots by these. Retune the
+  // autoplay through AUTO_WEIGHTS, never here, or old links play out wrong.
+  const LINK_WEIGHTS = {
+    height: -4.500158825082766,
+    cleared: 3.4181268101392694,
+    rowTransitions: -3.2178882868487753,
+    colTransitions: -9.348695305445199,
+    holes: -7.899265427351652,
+    wells: -3.3855972247263626,
+  };
+  // ms a time step stands for, and the longest game each is used for: 0.1 s
+  // up to 5 minutes, then 0.2 s, 0.5 s and 1 s.
+  const LINK_UNITS = [100, 200, 500, 1000];
+  const LINK_UNIT_UNTIL = [5 * 60000, 15 * 60000, 45 * 60000, Infinity];
+  const LINK_GARBAGE = 253; // then rows and the gap's column
+  const LINK_HOLD = 254;
+  const LINK_ELSEWHERE = 255; // then r, x + 8 and y + 8
+  const LINK_MAX_ENTRIES = 100000;
+  const LINK_MAX_POINTS = 10000;
+  // Work done between breaths, so packing a long game never stalls a frame.
+  const LINK_CHUNK = 200;
+
+  const breathe = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Every spot the piece reaches by dropping straight down, after turning
+  // and sliding above the stack, best first by LINK_WEIGHTS. Ties keep this
+  // order, so the list is the same on every device.
+  function placements(grid, type) {
+    const seen = new Set();
+    const list = [];
+    for (let r = 0; r < 4; r++) {
+      for (let x = -3; x < COLS; x++) {
+        const p = { type, r, x, y: -4 };
+        if (collides(p, grid)) continue;
+        while (!collides({ ...p, y: p.y + 1 }, grid)) p.y++;
+        const key = cellsKey(p);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        list.push({ p, key, score: evaluate(p, grid, LINK_WEIGHTS) });
+      }
+    }
+    list.sort((a, b) => (a.score === b.score ? 0 : a.score > b.score ? -1 : 1));
+    return list;
+  }
+
+  function writeVarint(out, n) {
+    while (n >= 0x80) {
+      out.push((n & 0x7f) | 0x80);
+      n = Math.floor(n / 0x80);
+    }
+    out.push(n);
+  }
+
+  // Reads bytes in order, throwing when they run out.
+  function reader(bytes) {
+    let at = 0;
+    const need = (n) => {
+      if (at + n > bytes.length) throw new RangeError("short");
+    };
+    return {
+      byte() {
+        need(1);
+        return bytes[at++];
+      },
+      bytes(n) {
+        need(n);
+        at += n;
+        return bytes.subarray(at - n, at);
+      },
+      varint() {
+        let n = 0;
+        for (let shift = 0; shift < 35; shift += 7) {
+          const b = this.byte();
+          n += (b & 0x7f) * 2 ** shift;
+          if (!(b & 0x80)) return n;
+        }
+        throw new RangeError("varint");
+      },
+    };
+  }
+
+  async function squeeze(bytes, Stream) {
+    const stream = new Blob([bytes]).stream().pipeThrough(new Stream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+
+  function toBase64Url(bytes) {
+    let bin = "";
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function fromBase64Url(text) {
+    if (!/^[A-Za-z0-9_-]+$/.test(text)) return null;
+    try {
+      return Uint8Array.from(atob(text.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    } catch {
+      return null;
+    }
+  }
+
+  function replayLink(packed) {
+    return `${location.origin}/?r=${packed}`;
+  }
+
+  // The game as a link's text, or null if it would not pack.
+  async function packReplay({ log: entries, seed: text, flags }) {
+    if (!entries.length || entries.length > LINK_MAX_ENTRIES) return null;
+    const length = entries[entries.length - 1].at(-2);
+    const unit = LINK_UNIT_UNTIL.findIndex((until) => length <= until);
+    const sim = new Sim(text);
+    const ranks = [];
+    const times = [];
+    const points = [];
+    const extra = [];
+    let prev = 0;
+
+    for (let k = 0; k < entries.length; k++) {
+      if (k && k % LINK_CHUNK === 0) await breathe();
+      const entry = entries[k];
+      const [t, pts] = entry.slice(-2);
+      const move = entry.slice(0, -2);
+      // Rounded on the running total, so the steps never drift from the clock.
+      const q = Math.max(prev, Math.round(t / LINK_UNITS[unit]));
+      times.push(q - prev);
+      prev = q;
+      points.push(pts);
+      if (move[0] === "H") {
+        ranks.push(LINK_HOLD);
+      } else if (move[0] === "G") {
+        ranks.push(LINK_GARBAGE);
+        extra.push(move[1], move[2]);
+      } else {
+        const p = { type: move[0], r: move[1], x: move[2], y: move[3] };
+        const key = cellsKey(p);
+        const rank = placements(sim.grid, p.type).findIndex((s) => s.key === key);
+        if (rank >= 0) {
+          ranks.push(rank);
+        } else {
+          ranks.push(LINK_ELSEWHERE);
+          extra.push(p.r, p.x + 8, p.y + 8);
+        }
+      }
+      sim.apply(move, pts);
+    }
+
+    const seedBytes = new TextEncoder().encode(text);
+    const body = [flags, unit, seedBytes.length];
+    for (const b of seedBytes) body.push(b);
+    writeVarint(body, entries.length);
+    for (const b of ranks) body.push(b);
+    for (const n of times) writeVarint(body, n);
+    for (const n of points) writeVarint(body, n);
+    for (const b of extra) body.push(b);
+    const raw = Uint8Array.from(body);
+
+    let packed = null;
+    try {
+      packed = await squeeze(raw, CompressionStream);
+    } catch {
+      // No CompressionStream in this browser: the link goes out as it is.
+    }
+    const deflated = packed !== null && packed.length < raw.length;
+    const payload = deflated ? packed : raw;
+    const out = new Uint8Array(payload.length + 1);
+    out[0] = LINK_VERSION | (deflated ? 0x80 : 0);
+    out.set(payload, 1);
+    return toBase64Url(out);
+  }
+
+  // { seed, flags, log } from a link's text, or null if it is damaged. Every
+  // piece is checked as it is placed, so a damaged link cannot play an
+  // impossible game: it stops, and says so.
+  async function unpackReplay(text) {
+    const bytes = fromBase64Url(text);
+    if (!bytes || bytes.length < 2 || (bytes[0] & 0x7f) !== LINK_VERSION) return null;
+    const body = bytes[0] & 0x80 ? await squeeze(bytes.subarray(1), DecompressionStream) : bytes.subarray(1);
+    const rd = reader(body);
+    const flags = rd.byte();
+    const unit = LINK_UNITS[rd.byte()];
+    const seedText = new TextDecoder("utf-8", { fatal: true }).decode(rd.bytes(rd.byte()));
+    if (!unit || !seedText || cleanSeed(seedText) !== seedText) return null;
+    const n = rd.varint();
+    if (n < 1 || n > LINK_MAX_ENTRIES) return null;
+    const ranks = rd.bytes(n);
+    const times = Array.from({ length: n }, () => rd.varint());
+    const points = Array.from({ length: n }, () => rd.varint());
+
+    const sim = new Sim(seedText);
+    const log = [];
+    let t = 0;
+    for (let k = 0; k < n; k++) {
+      if (k && k % LINK_CHUNK === 0) await breathe();
+      if (sim.over || points[k] > LINK_MAX_POINTS) return null;
+      t += times[k] * unit;
+      const rank = ranks[k];
+      let move;
+      if (rank === LINK_HOLD) {
+        if (!sim.canHold) return null;
+        move = ["H", sim.cur];
+      } else if (rank === LINK_GARBAGE) {
+        const rows = rd.byte();
+        const hole = rd.byte();
+        if (rows < 1 || rows > ROWS || hole >= COLS) return null;
+        move = ["G", rows, hole];
+      } else {
+        let p;
+        if (rank === LINK_ELSEWHERE) {
+          p = { type: sim.cur, r: rd.byte(), x: rd.byte() - 8, y: rd.byte() - 8 };
+          // Resting on something, in cells that are free.
+          if (p.r > 3 || collides(p, sim.grid) || !collides({ ...p, y: p.y + 1 }, sim.grid)) return null;
+        } else {
+          p = placements(sim.grid, sim.cur)[rank]?.p;
+          if (!p) return null;
+        }
+        move = [p.type, p.r, p.x, p.y];
+      }
+      log.push([...move, t, points[k]]);
+      sim.apply(move, points[k]);
+    }
+    return { seed: seedText, flags, log };
+  }
+
+  /* -- Shared replays --
+     Opening a replay link (?r=) plays it in place of a new game. Starting a
+     game, by any route, takes the link out of the address. */
+
+  let watching = null; // { seed, flags, log, frames, link } of the link opened
+  let watchToken = 0;
+
+  async function watchShared(text) {
+    const token = ++watchToken;
+    showOverlay("loading");
+    let shared = null;
+    try {
+      shared = await unpackReplay(text);
+    } catch {
+      shared = null;
+    }
+    if (token !== watchToken) return; // a game was started meanwhile
+    if (!shared) {
+      showOverlay("damaged");
+      return;
+    }
+    const frames = replayFrames(shared.log, shared.seed, null);
+    watching = { ...shared, frames, link: replayLink(text) };
+    startReplay(frames, watching.link, null);
+  }
+
+  function forgetShared() {
+    watchToken++;
+    watching = null;
+    const params = new URLSearchParams(location.search);
+    if (!params.has("r")) return;
+    params.delete("r");
+    const rest = params.toString();
+    history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
+  }
+
+  function sharedLine() {
+    const end = watching.frames[watching.frames.length - 1];
+    const line = `Score ${end.score.toLocaleString()}, ${end.lines} ${end.lines === 1 ? "line" : "lines"}.`;
+    if (!(watching.flags & 1)) return line;
+    const result = (watching.flags >> 1) & 3;
+    return `${line} ${result === 1 ? "Won a match" : result === 2 ? "Lost a match" : "A match"} against another device.`;
+  }
+
   /* -- Drawing -- */
 
   function readPalette() {
@@ -889,10 +1664,12 @@
       ghostFill: token("--ghost-fill"),
       ghostStroke: token("--ghost-stroke"),
       shine: token("--piece-shine"),
-      piece: Object.fromEntries(TYPES.map((t) => [t, token(`--piece-${t.toLowerCase()}`)])),
+      incoming: token("--error"),
+      piece: Object.fromEntries([...TYPES, "G"].map((t) => [t, token(`--piece-${t.toLowerCase()}`)])),
     };
     dirty = true;
     drawMinis();
+    drawOpponent();
   }
 
   function roundedRect(c, x, y, w, h, r) {
@@ -932,14 +1709,15 @@
     ctx.stroke();
   }
 
-  function ghostY() {
-    let y = cur.y;
-    while (!collides({ ...cur, y: y + 1 })) y++;
-    return y;
+  // Where p would land on grid.
+  function ghostOf(p, grid) {
+    let y = p.y;
+    while (!collides({ ...p, y: y + 1 }, grid)) y++;
+    return { ...p, y };
   }
 
-  // The piece a replay is about to lock, drawn where it landed and ringed so
-  // it stands out from the stack.
+  // A piece in a replay, drawn where it locked and ringed so it stands out
+  // from the stack.
   function paintPlaced(x, y, type) {
     paintCell(ctx, x, y, tile, palette.piece[type]);
     const { px, py, s, r } = cellBox(x, y, tile);
@@ -949,9 +1727,20 @@
     ctx.stroke();
   }
 
+  // A piece with its ghost below it, on grid.
+  function paintFalling(p, grid) {
+    const ghost = ghostOf(p, grid);
+    if (ghost.y !== p.y) {
+      for (const [x, y] of cellsOf(ghost)) if (y >= 0) paintGhost(x, y);
+    }
+    for (const [x, y] of cellsOf(p)) {
+      if (y >= 0) paintCell(ctx, x, y, tile, palette.piece[p.type]);
+    }
+  }
+
   function draw() {
     dirty = false;
-    const view = replay && replay.frames[replay.at];
+    const view = replay && replay.frames[replay.i];
     const cells = view ? view.board : board;
     const w = COLS * tile;
     const h = ROWS * tile;
@@ -980,17 +1769,21 @@
     }
 
     if (view) {
-      if (view.piece) {
-        for (const [x, y] of cellsOf(view.piece)) if (y >= 0) paintPlaced(x, y, view.piece.type);
+      const p = replayPiece(view, replay.t);
+      if (p && view.place && replay.t >= view.end) {
+        for (const [x, y] of cellsOf(p)) if (y >= 0) paintPlaced(x, y, p.type);
+      } else if (p) {
+        paintFalling(p, cells);
       }
-    } else if (cur && !over) {
-      const gy = ghostY();
-      if (gy !== cur.y) {
-        for (const [x, y] of cellsOf({ ...cur, y: gy })) if (y >= 0) paintGhost(x, y);
-      }
-      for (const [x, y] of cellsOf(cur)) {
-        if (y >= 0) paintCell(ctx, x, y, tile, palette.piece[cur.type]);
-      }
+      return;
+    }
+    if (cur && !over) paintFalling(cur, board);
+
+    // Garbage on its way, as a bar up the right edge, a row for a row.
+    if (incoming > 0) {
+      const rows = Math.min(incoming, ROWS);
+      ctx.fillStyle = palette.incoming;
+      ctx.fillRect(w - 4, h - rows * tile, 4, rows * tile);
     }
   }
 
@@ -1020,11 +1813,45 @@
 
   function drawMinis() {
     if (!palette) return;
-    const v = replay ? replay.frames[replay.at] : { hold, canHold, next: queue };
+    const v = replay ? replay.frames[replay.i] : { hold, canHold, next: queue };
     drawMini(holdCanvas, v.hold, !v.canHold);
     nextCanvases.forEach((cv, i) => drawMini(cv, v.next[i], false));
     holdCanvas.setAttribute("aria-label", v.hold ? `Hold: ${v.hold} piece` : "Hold: empty");
     nextList.setAttribute("aria-label", `Next pieces: ${v.next.slice(0, NEXT_COUNT).join(", ")}`);
+  }
+
+  // A cell too small for paintCell's rounding and shine, which turn it into
+  // a dot: a plain square with a hairline gap.
+  function paintSmall(c, x, y, size, color) {
+    c.fillStyle = color;
+    c.fillRect(x * size + 0.5, y * size + 0.5, size - 1, size - 1);
+  }
+
+  // The other device's board, small, in its card. Hidden outside versus.
+  function drawOpponent() {
+    if (!palette || !oppCanvas) return;
+    const w = oppCanvas.clientWidth;
+    const h = oppCanvas.clientHeight;
+    if (!w || !dpr) return;
+    if (oppCanvas.width !== Math.round(w * dpr)) setBuffer(oppCanvas, w, h);
+    const c = oppCanvas.getContext("2d");
+    const size = w / COLS;
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = palette.board;
+    c.fillRect(0, 0, w, h);
+    if (!opponent) return;
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const type = opponent.cells[y * COLS + x];
+        if (type !== ".") paintSmall(c, x, y, size, palette.piece[type]);
+      }
+    }
+    if (opponent.cur) {
+      const [type, r, x, y] = opponent.cur;
+      for (const [cx, cy] of cellsOf({ type, r, x, y })) {
+        if (cy >= 0) paintSmall(c, cx, cy, size, palette.piece[type]);
+      }
+    }
   }
 
   /* -- Sizing -- */
@@ -1055,11 +1882,13 @@
       canvas.style.width = `${COLS * tile}px`;
       canvas.style.height = `${ROWS * tile}px`;
       setBuffer(canvas, COLS * tile, ROWS * tile);
+      if (oppCanvas) oppCanvas.width = 0; // drawOpponent sizes it afresh
       dirty = true;
     }
 
     for (const cv of [holdCanvas, ...nextCanvases]) setBuffer(cv, cv.clientWidth, cv.clientHeight);
     drawMinis();
+    drawOpponent();
   }
 
   /* -- Loop -- */
@@ -1072,6 +1901,18 @@
     const modalOpen = document.body.classList.contains("modal-open");
     if (modalOpen && !suspended) releaseAll();
     suspended = modalOpen;
+
+    // A match's countdown runs on the wall clock, the same on both devices.
+    if (countdownEnd) {
+      const left = countdownEnd - performance.now();
+      if (left <= 0) {
+        countdownEnd = 0;
+        if (overlayKind === "countdown") hideOverlay();
+        if (document.hidden) setPaused(true);
+      } else if (overlayKind === "countdown") {
+        put(overlay.title, String(Math.ceil(left / 1000)));
+      }
+    }
 
     if (playing()) {
       clock += dt;
@@ -1151,7 +1992,7 @@
         setPaused(false);
         break;
       case "reset":
-        reset();
+        newGame();
         break;
       case "autoplay":
         toggleAutoplay();
@@ -1311,20 +2152,24 @@
   });
 
   replayBar.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-replay]");
+    const btn = e.target.closest("[data-replay], [data-speed]");
     if (!btn || !replay) return;
+    if (btn.dataset.speed) {
+      setReplaySpeed(Number(btn.dataset.speed));
+      return;
+    }
     switch (btn.dataset.replay) {
       case "back":
-        replaySeek(replay.at - 1);
+        replayStep(-1);
         break;
       case "forward":
-        replaySeek(replay.at + 1);
+        replayStep(1);
         break;
       case "play":
         replayToggle();
         break;
-      case "speed":
-        replaySpeed();
+      case "share":
+        shareReplay();
         break;
       case "close":
         closeReplay();
@@ -1466,6 +2311,23 @@
     // Storage blocked: skip the hint rather than show it every time.
   }
 
+  /* -- For the modules --
+     js/app.js opens the replay when a game ends, and js/versus.js plays
+     matches through the rest. */
+
+  window.uwuTetris = {
+    openReplay,
+    startMatch,
+    setMatchResult,
+    endVersus,
+    snapshot,
+    setOpponentSent,
+    setOpponent,
+    matchId: () => match?.id ?? 0,
+    matchLive: () => Boolean(match && !over),
+    newSeed: randomSeed,
+  };
+
   /* -- Start -- */
 
   new MutationObserver(readPalette).observe(document.documentElement, {
@@ -1476,9 +2338,18 @@
   if ("ResizeObserver" in window) new ResizeObserver(fit).observe(game);
   window.addEventListener("resize", fit);
 
+  try {
+    const saved = Number(localStorage.getItem(SPEED_KEY));
+    setReplaySpeed(REPLAY_SPEEDS.includes(saved) ? saved : 1, false);
+  } catch {
+    setReplaySpeed(1, false);
+  }
+
   readPalette();
   fit();
-  reset();
+  const sharedLink = new URLSearchParams(location.search).get("r");
+  if (sharedLink) watchShared(sharedLink);
+  else reset();
   if (document.hidden) setPaused(true);
   requestAnimationFrame(loop);
 })();

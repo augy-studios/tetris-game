@@ -31,6 +31,15 @@ export const icons = {
   play: svg(`<path d="M7 4.5v15L19 12Z"/>`),
   stepBack: svg(`<path d="M18 5v14L8 12ZM6 5v14"/>`),
   stepForward: svg(`<path d="M6 5v14l10-7ZM18 5v14"/>`),
+  share: svg(`<path d="M12 3v12M7.5 7.5 12 3l4.5 4.5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>`),
+
+  // Versus
+  users: svg(
+    `<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/>`
+  ),
+  link: svg(
+    `<path d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1"/>`
+  ),
 };
 
 export function icon(name) {
