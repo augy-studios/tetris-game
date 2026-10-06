@@ -42,5 +42,12 @@ or 4 lines sends 1, 2 or 4 rows of garbage, which first cancels garbage on
 its way to you; garbage lands when you next lock a piece without clearing a
 line. The first to top out loses. The host runs the match (`js/versus.js`);
 each device sends its board 20 times a second, with garbage as a running
-total so a lost message costs nothing. Matches are not ranked: the server's
-replay check knows nothing of garbage.
+total so a lost message costs nothing. While a match is on, the opponent's
+board is recorded on your game's clock, so the instant replay plays it back
+beside yours.
+
+Matches are ranked, each board's game on its own. The server cannot tell
+garbage a real opponent sent from garbage a log made up, so **a row with
+garbage in it scores nothing and counts as no line** (it still counts as
+attack). Made-up garbage then only gets in the way, and the server checks a
+match's log without knowing the other board.

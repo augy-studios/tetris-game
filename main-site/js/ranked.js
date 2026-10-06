@@ -26,13 +26,12 @@ function showForm(visible) {
 
 function onStart(event) {
   $("rankArea").hidden = true;
-  const { seeded, versus } = event.detail;
-  const game = { seeded, versus, startError: null, stats: null, finished: null };
+  const game = { seeded: event.detail.seeded, startError: null, stats: null, finished: null };
   current = game;
   // A pasted seed deals pieces the player may already know, so it is never
-  // ranked and needs no game id. Nor is a match: the server's check of the
-  // log knows nothing of the garbage the other board sent.
-  if (seeded || versus) {
+  // ranked and needs no game id. A match ranks: its seed is the host's, and
+  // garbage scores nothing, so the server checks it like any other game.
+  if (game.seeded) {
     game.id = Promise.resolve(null);
     return;
   }
@@ -70,10 +69,6 @@ async function onOver(event) {
   showForm(false);
   say("");
 
-  if (game.versus) {
-    say("Matches against another device are not ranked.");
-    return;
-  }
   if (assisted) {
     say("Autoplay was used in this game, so it is not ranked.");
     return;

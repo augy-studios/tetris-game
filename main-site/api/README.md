@@ -35,6 +35,12 @@ plays the game again from it:
 - no 20 locks in a row faster than 6 pieces a second, far past human play
 - the log's play time fits in the time since `new`, which only the server knows
 
+In a match against another device the log also has garbage entries,
+`["G", rows, hole, t, 0]`, straight after a lock. Nothing here knows the
+other board, so garbage cannot be checked: instead a cleared row with
+garbage in it scores nothing and counts as no line, and made-up garbage
+gains nothing.
+
 The replay's score, lines, level and pieces must equal the claim. `_lib/rules.js`
 then checks them against the time since `new` as well. A refused game logs its
 reason on the server; the reply only says `implausible`.

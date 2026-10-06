@@ -316,18 +316,23 @@
     updateStats();
   }
 
-  // Takes the full rows out of grid, the board or a replay's, and says how many.
+  // Takes the full rows out of grid, the board or a replay's. cleared is how
+  // many; scored, how many had no garbage in them. Garbage scores nothing,
+  // since the leaderboard cannot tell real garbage from made-up garbage
+  // (api/_lib/replay.js), but a garbage row cleared still counts as attack.
   function removeFullRows(grid) {
     let cleared = 0;
+    let scored = 0;
     for (let y = ROWS - 1; y >= 0; y--) {
       if (grid[y].every((c) => c !== "")) {
+        if (!grid[y].includes("G")) scored++;
         grid.splice(y, 1);
         grid.unshift(Array(COLS).fill(""));
         cleared++;
         y++;
       }
     }
-    return cleared;
+    return { cleared, scored };
   }
 
   // Pushes rows of garbage in from the bottom of grid, each with a gap at
@@ -342,11 +347,11 @@
   const levelFor = (lines) => 1 + Math.floor(lines / 10);
 
   function clearLines() {
-    const cleared = removeFullRows(board);
+    const { cleared, scored } = removeFullRows(board);
     if (!cleared) return 0;
 
-    lines += cleared;
-    score += LINE_SCORES[cleared] * level;
+    lines += scored;
+    score += LINE_SCORES[scored] * level;
     level = levelFor(lines);
     dropInterval = Math.max(80, 1000 - (level - 1) * 60);
     return cleared;
@@ -483,6 +488,7 @@
     log = []; // a new array: the last game's is still on its way to the server
     trails = [];
     trail = [];
+    oppTrail = []; // new, like log: an open replay may still hold the last
     gameStart = clock;
     dropPoints = 0;
     dropInterval = 1000;
@@ -498,7 +504,9 @@
     garbageHoles = seededRandom(`${seed}/garbage`);
     releaseAll();
     hideOverlay();
-    announce("tetris:start", { seeded: chosenSeed, versus: Boolean(match) });
+    // A match's seed is the host's, picked at random like any game's, not
+    // one pasted in to practise, so a match ranks.
+    announce("tetris:start", { seeded: chosenSeed && !match, versus: Boolean(match) });
     spawn(takeNext());
     updateStats();
     syncPauseButton();
@@ -537,8 +545,10 @@
     });
   }
 
+  // A match never pauses: the other board would carry on regardless.
   function setPaused(value) {
     if (over || cur === null || countdownEnd || paused === value) return;
+    if (match && value) return;
     paused = value;
     releaseAll();
     if (paused) showOverlay("paused");
@@ -690,7 +700,9 @@
   }
 
   function syncPauseButton() {
-    if (pauseBtn) pauseBtn.setAttribute("aria-pressed", String(paused));
+    if (!pauseBtn) return;
+    pauseBtn.setAttribute("aria-pressed", String(paused));
+    pauseBtn.disabled = Boolean(match && !over); // no pausing a match
   }
 
   /* -- Autoplay --
@@ -851,8 +863,9 @@
      drives these through window.uwuTetris. Each device plays its own board
      from the host's seed. Lines cleared send garbage to the other board,
      first cancelling any on its way here, and the first board to top out
-     loses. A match is never ranked: the server's check knows nothing of
-     garbage. */
+     loses. Each board's game is ranked on its own like any other; rows with
+     garbage in them score nothing (removeFullRows), so the leaderboard can
+     check a match's log without knowing the other board. */
 
   let versus = false; // with another device, from the first match until leaving
   let match = null; // { id, result, why } for a match game; null alone
@@ -862,6 +875,7 @@
   let sent = 0; // rows sent to the other board this match, a running total
   let garbageHoles = null; // where each load's gap goes: the seed's, so a replay agrees
   let opponent = null; // the other board, as it last arrived
+  let oppTrail = []; // this match's other board over time: { t, view }
 
   // A cleared line first cancels garbage on its way here, then goes to the
   // other board. A lock that clears nothing takes all that is waiting, and
@@ -933,9 +947,35 @@
     dirty = true;
   }
 
+  // Kept on this game's clock while the match is played, so the replay can
+  // show the other board as it stood at each moment, beside this one.
   function setOpponent(view) {
     opponent = view;
-    drawOpponent();
+    if (view && match && !over && view.match === match.id) {
+      const t = Math.round(clock - gameStart);
+      const last = oppTrail[oppTrail.length - 1];
+      const same =
+        last &&
+        last.view.cells === view.cells &&
+        String(last.view.cur) === String(view.cur) &&
+        last.view.score === view.score;
+      if (last && last.t === t) last.view = view;
+      else if (!same) oppTrail.push({ t, view });
+    }
+    if (!replay?.opp) drawOpponent();
+  }
+
+  // The other board at time t of a replay: the last that had arrived by then.
+  function opponentAt(trail, t) {
+    let lo = 0;
+    let hi = trail.length - 1;
+    if (hi < 0 || trail[0].t > t) return -1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (trail[mid].t <= t) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
   }
 
   /* -- Replay --
@@ -1028,9 +1068,9 @@
         this.over = true;
         return;
       }
-      const cleared = removeFullRows(this.grid);
-      this.lines += cleared;
-      this.score += LINE_SCORES[cleared] * this.level;
+      const { scored } = removeFullRows(this.grid);
+      this.lines += scored;
+      this.score += LINE_SCORES[scored] * this.level;
       this.level = levelFor(this.lines);
       this.cur = this.take();
     }
@@ -1138,12 +1178,24 @@
       return;
     }
     if (!over || !log.length) return;
-    startReplay(replayFrames(log, seed, trails), null, { log, seed, match });
+    startReplay(replayFrames(log, seed, trails), null, { log, seed, match }, match && oppTrail.length ? oppTrail : null);
   }
 
-  // source is the game to pack into a link: { log, seed, match }.
-  function startReplay(frames, link, source) {
-    const r = { frames, total: frames[frames.length - 1].start, i: 0, t: 0, playing: true, link, source, shown: -1 };
+  // source is the game to pack into a link: { log, seed, match }. opp is a
+  // match's other board over time, shown in its card in step with this one.
+  function startReplay(frames, link, source, opp = null) {
+    const r = {
+      frames,
+      total: frames[frames.length - 1].start,
+      i: 0,
+      t: 0,
+      playing: true,
+      link,
+      source,
+      opp,
+      shown: -1,
+      oppShown: -2,
+    };
     replay = r;
     replayUI.seek.max = String(r.total);
     setShareNote("");
@@ -1177,6 +1229,7 @@
     dirty = true;
     drawMinis();
     updateStats();
+    drawOpponent(); // back to the other board as it is now
     if (backToOverlay) showOverlay(watching ? "shared" : "over");
   }
 
@@ -1208,6 +1261,13 @@
       replay.shown = i;
       drawMinis();
       updateStats();
+    }
+    if (replay.opp) {
+      const k = opponentAt(replay.opp, t);
+      if (replay.oppShown !== k) {
+        replay.oppShown = k;
+        drawOpponent();
+      }
     }
     put(replayUI.time, `${clockText(t)} / ${clockText(total)}`);
     put(replayUI.pos, shareNote || pos);
@@ -1827,9 +1887,25 @@
     c.fillRect(x * size + 0.5, y * size + 0.5, size - 1, size - 1);
   }
 
-  // The other device's board, small, in its card. Hidden outside versus.
+  // The other device's board, small, in its card, with its score. Hidden
+  // outside versus. In a match's replay, the board as it stood at that
+  // moment of the replay; otherwise as it is now.
   function drawOpponent() {
-    if (!palette || !oppCanvas) return;
+    if (!oppCanvas) return;
+    let view = opponent;
+    if (replay?.opp) {
+      const k = opponentAt(replay.opp, replay.t);
+      view = k < 0 ? null : replay.opp[k].view;
+    }
+    const info = $("oppInfo");
+    const text = view
+      ? `Score ${view.score.toLocaleString()}, ${view.lines} ${view.lines === 1 ? "line" : "lines"}`
+      : replay?.opp
+        ? "Getting ready"
+        : "Waiting for a match";
+    if (info.textContent !== text) info.textContent = text;
+
+    if (!palette) return;
     const w = oppCanvas.clientWidth;
     const h = oppCanvas.clientHeight;
     if (!w || !dpr) return;
@@ -1839,15 +1915,15 @@
     c.clearRect(0, 0, w, h);
     c.fillStyle = palette.board;
     c.fillRect(0, 0, w, h);
-    if (!opponent) return;
+    if (!view) return;
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
-        const type = opponent.cells[y * COLS + x];
+        const type = view.cells[y * COLS + x];
         if (type !== ".") paintSmall(c, x, y, size, palette.piece[type]);
       }
     }
-    if (opponent.cur) {
-      const [type, r, x, y] = opponent.cur;
+    if (view.cur) {
+      const [type, r, x, y] = view.cur;
       for (const [cx, cy] of cellsOf({ type, r, x, y })) {
         if (cy >= 0) paintSmall(c, cx, cy, size, palette.piece[type]);
       }
@@ -1893,14 +1969,22 @@
 
   /* -- Loop -- */
 
+  // The most of a hidden tab's absence a match plays out on return.
+  const MATCH_CATCH_UP_MS = 120000;
+  const CATCH_UP_STEP_MS = 50;
+
   function loop(ts) {
-    const dt = lastFrame === null ? 0 : Math.min(ts - lastFrame, 100);
+    const elapsed = lastFrame === null ? 0 : ts - lastFrame;
+    const dt = Math.min(elapsed, 100);
     lastFrame = ts;
 
-    // The theme modal holds the game still, without the Paused screen.
+    // Any modal holds the game still, without the Paused screen. Not a
+    // match: that would be a pause by another name, while the other board
+    // carries on.
     const modalOpen = document.body.classList.contains("modal-open");
-    if (modalOpen && !suspended) releaseAll();
-    suspended = modalOpen;
+    const freeze = modalOpen && !(match && !over);
+    if (freeze && !suspended) releaseAll();
+    suspended = freeze;
 
     // A match's countdown runs on the wall clock, the same on both devices.
     if (countdownEnd) {
@@ -1908,14 +1992,20 @@
       if (left <= 0) {
         countdownEnd = 0;
         if (overlayKind === "countdown") hideOverlay();
-        if (document.hidden) setPaused(true);
       } else if (overlayKind === "countdown") {
         put(overlay.title, String(Math.ceil(left / 1000)));
       }
     }
 
-    if (playing()) {
-      clock += dt;
+    // A hidden tab gets no frames, which would freeze a match as well as a
+    // pause would. So a match plays out the time it missed on return, a
+    // step at a time, gravity and lock delay and all: the pieces fall and
+    // lock where they would have.
+    let left = match && !over ? Math.min(elapsed, MATCH_CATCH_UP_MS) : dt;
+    while (left > 0 && playing()) {
+      const d = Math.min(left, CATCH_UP_STEP_MS);
+      left -= d;
+      clock += d;
       step();
       if (autoplay && playing() && clock - autoAt >= AUTO_STEP) {
         autoAt = clock;

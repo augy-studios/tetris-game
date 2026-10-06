@@ -5,6 +5,7 @@
 //
 // Scoring must match script.js: LINE_SCORES times the level before the clear,
 // 1 a row for a soft drop, 2 a row for a hard drop, level 1 + lines / 10.
+// Rows with a match's garbage in them score nothing and are not lines.
 
 export const LINE_SCORES = [0, 100, 300, 500, 800];
 

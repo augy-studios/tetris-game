@@ -72,7 +72,6 @@ let wakeLock = null;
 // host: the match. guest: the host's last state.
 let matchState = lobby();
 let hostState = null;
-let opponentBoard = null;
 
 function lobby() {
   return { id: 0, phase: "lobby", seed: "", startAt: 0, result: null };
@@ -156,7 +155,6 @@ function applyResult(winner, why) {
 
 // The other board, when it belongs to the match this device is playing.
 function showOpponent(board) {
-  opponentBoard = board;
   game().setOpponentSent(board.sent);
   game().setOpponent(board);
 }
@@ -179,7 +177,6 @@ async function startHosting() {
   code = storedCode(HOST_CODE_KEY) ?? generateCode();
   write(localStorage, HOST_CODE_KEY, code);
   matchState = lobby();
-  opponentBoard = null;
   game().setOpponent(null);
   $("vsCode").textContent = code;
   $("vsQr").innerHTML = qrToSvg(joinLink(code));
@@ -263,7 +260,6 @@ function startMatch() {
     result: null,
   };
   problem = "";
-  opponentBoard = null;
   game().setOpponent(null);
   game().startMatch(matchState.id, matchState.seed, COUNTDOWN_MS);
   closeVersusModal();
@@ -410,7 +406,6 @@ function followHost(s) {
   const g = game();
   if (s.phase === "countdown" && g.matchId() !== s.match) {
     g.startMatch(s.match, s.seed, s.startIn);
-    opponentBoard = null;
     closeVersusModal();
   }
   const mine = g.matchId();
@@ -445,7 +440,6 @@ function leave() {
   problem = "";
   hostState = null;
   matchState = lobby();
-  opponentBoard = null;
   write(sessionStorage, SESSION_KEY, null);
   releaseWakeLock();
   game().endVersus();
@@ -532,8 +526,8 @@ function render() {
   $("oppCard").hidden = role === null;
   $("oppStatus").dataset.tone = line.tone;
   put($("oppStatusText"), line.short);
-  const b = opponentBoard;
-  put($("oppInfo"), b ? `Score ${b.score.toLocaleString()}, ${b.lines} ${b.lines === 1 ? "line" : "lines"}` : "Waiting for a match");
+  // The board and its score are script.js's to draw: in a replay it shows
+  // the board as it was, not as it is.
 }
 
 /* ---- the screen ---- */
