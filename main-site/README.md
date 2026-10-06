@@ -12,10 +12,18 @@ browser, as in the word rain game.
 
 ## Sharing a replay
 
-Share, in the replay, makes a link such as `/?r=gVWNSwrC...` through the
-device's share sheet where it has one and the clipboard otherwise. As with
-the chess game's links, the link is the whole game and nothing is stored
-anywhere, so it opens offline once the site has been visited:
+Share, in the replay, hands over a link through the device's share sheet
+where it has one and the clipboard otherwise.
+
+**Short links**, `/?s=Ab3dE9xQ`, are the usual kind: the packed game below
+is saved by `/api/replay/save` in `uwutetris_replays` (migration 002) under
+the start of its hash, so any game, however long, is one short link, and
+sharing a game twice is one row. Opening one needs the network.
+
+**Long links**, `/?r=gVWNSwrC...`, are the fallback when saving fails, such
+as offline. As with the chess game's links, the link is the whole game and
+nothing is stored anywhere, so it opens offline once the site has been
+visited. The packing, which short links store too:
 
 - each lock is its place in the list of spots the piece could have dropped
   straight to, best first by the autoplay's scoring, so a sound move is a

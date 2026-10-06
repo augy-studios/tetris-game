@@ -16,6 +16,13 @@ started it.
 | `POST /api/leaderboard/submit` | `game_id, name` | `name, rank, best_score, total, games, total_rank` |
 | `POST /api/leaderboard/name` | `name` | `name`, cleaned, or a `400` saying why not |
 | `GET /api/leaderboard` | `?board=best` (default) or `?board=total` | `board, entries`, cached 30 s |
+| `POST /api/replay/save` | `data`, a packed replay | `id`, for the short link `/?s=<id>` |
+| `GET /api/replay/load` | `?id=` | `data`, cached at the edge for a year |
+
+A short replay link's id is the start of the SHA-256 of its data in base 62,
+eight characters, longer only if another game already has those eight. The
+data is checked for shape only (`_lib/replays.js`, at most 100,000
+characters); the page checks every piece as it plays it back.
 
 Errors are `{ "error": code, "message"? }` with a matching status: `400` bad
 input or an out of date copy of the game (`outdated`), `404` no such game,
@@ -72,6 +79,7 @@ A game must be submitted within an hour of finishing, with a score above 0.
 | `game/*.js`, `leaderboard/*.js` | The endpoints. |
 | `_lib/rules.js` | Scoring limits and the plausibility checks. |
 | `_lib/replay.js` | Replays a finished game's log; its pieces and scoring mirror `/script.js`. |
+| `replay/*.js`, `_lib/replays.js` | Short replay links: saving and loading a packed game. |
 | `_lib/http.js` | Input checks and error replies. |
 | `_lib/names.js` | Leaderboard name cleaning and the word filter, shared with mrtguess. |
 | `_lib/supabase.js` | Supabase REST with the service role key. |

@@ -599,6 +599,20 @@
           primary: ["New game", "reset"],
           hint: "Or press R.",
         };
+      case "missing":
+        return {
+          title: "Replay not found",
+          sub: "There is no replay at that link. Check it was copied whole.",
+          primary: ["New game", "reset"],
+          hint: "Or press R.",
+        };
+      case "unreachable":
+        return {
+          title: "Could not load the replay",
+          sub: "A short replay link needs a connection to open. Check yours and reload the page.",
+          primary: ["New game", "reset"],
+          hint: "Or press R.",
+        };
       default:
         return {
           title: "Paused",
@@ -1206,17 +1220,20 @@
     if (!link && source) prepareLink(r);
   }
 
-  // Packed in the background, so Share can hand the link over at once. Packed
-  // again when a match's result arrives after its replay has opened.
+  // Packed and saved for a short link in the background, so Share can hand
+  // the link over at once. Again when a match's result arrives after its
+  // replay has opened. Where the short link cannot be had, the long one.
   function prepareLink(r) {
-    const job = {};
+    const job = (async () => {
+      const packed = await packReplay({ ...r.source, flags: resultFlags(r.source.match) });
+      if (!packed) return null;
+      return (await shortLink(packed)) ?? replayLink(packed);
+    })().catch(() => null);
     r.link = null;
-    r.packing = job;
-    packReplay({ ...r.source, flags: resultFlags(r.source.match) })
-      .then((packed) => {
-        if (packed && r.packing === job) r.link = replayLink(packed);
-      })
-      .catch(() => {});
+    r.linkJob = job;
+    job.then((link) => {
+      if (r.linkJob === job) r.link = link;
+    });
   }
 
   // Back to the screen it came from, or straight on when a new game is starting.
@@ -1382,8 +1399,8 @@
     if (!r.link) {
       replayUI.share.disabled = true;
       try {
-        const packed = await packReplay({ ...r.source, flags: resultFlags(r.source.match) });
-        if (packed) r.link = replayLink(packed);
+        if (!r.linkJob) prepareLink(r);
+        r.link = await r.linkJob;
       } finally {
         replayUI.share.disabled = false;
       }
@@ -1547,8 +1564,54 @@
     }
   }
 
+  // The long link: the whole game in the address.
   function replayLink(packed) {
     return `${location.origin}/?r=${packed}`;
+  }
+
+  /* Short links: the packed game kept by /api/replay/save under an id of
+     eight characters, so any game shares as /?s=<id>, a few dozen characters
+     however long it ran. Opening one needs the network; the long link, the
+     fallback when saving fails, opens offline. */
+
+  const SHORT_TIMEOUT_MS = 5000;
+
+  async function api(path, init) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), SHORT_TIMEOUT_MS);
+    try {
+      return await fetch(path, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // The short link for packed, or null when the server cannot be had.
+  async function shortLink(packed) {
+    try {
+      const res = await api("/api/replay/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ data: packed }),
+      });
+      const { id } = res.ok ? await res.json() : {};
+      return /^[0-9A-Za-z]{8,16}$/.test(id ?? "") ? `${location.origin}/?s=${id}` : null;
+    } catch {
+      return null;
+    }
+  }
+
+  // The packed game behind a short link: { packed }, or { missing } when
+  // there is none, or { unreachable } when the server cannot be had.
+  async function loadShort(id) {
+    try {
+      const res = await api(`/api/replay/load?id=${encodeURIComponent(id)}`);
+      if (res.status === 404 || res.status === 400) return { missing: true };
+      const { data } = res.ok ? await res.json() : {};
+      return typeof data === "string" ? { packed: data } : { unreachable: true };
+    } catch {
+      return { unreachable: true };
+    }
   }
 
   // The game as a link's text, or null if it would not pack.
@@ -1670,37 +1733,50 @@
   }
 
   /* -- Shared replays --
-     Opening a replay link (?r=) plays it in place of a new game. Starting a
-     game, by any route, takes the link out of the address. */
+     Opening a replay link, short (?s=) or long (?r=), plays it in place of
+     a new game. Starting a game, by any route, takes the link out of the
+     address. */
 
   let watching = null; // { seed, flags, log, frames, link } of the link opened
   let watchToken = 0;
 
-  async function watchShared(text) {
+  // One of { packed } for a long link or { id } for a short one.
+  async function watchShared({ packed, id }) {
     const token = ++watchToken;
     showOverlay("loading");
+    let link = packed ? replayLink(packed) : `${location.origin}/?s=${id}`;
+    if (id) {
+      const found = await loadShort(id);
+      if (token !== watchToken) return; // a game was started meanwhile
+      if (!found.packed) {
+        showOverlay(found.missing ? "missing" : "unreachable");
+        return;
+      }
+      packed = found.packed;
+    }
     let shared = null;
     try {
-      shared = await unpackReplay(text);
+      shared = await unpackReplay(packed);
     } catch {
       shared = null;
     }
-    if (token !== watchToken) return; // a game was started meanwhile
+    if (token !== watchToken) return;
     if (!shared) {
       showOverlay("damaged");
       return;
     }
     const frames = replayFrames(shared.log, shared.seed, null);
-    watching = { ...shared, frames, link: replayLink(text) };
-    startReplay(frames, watching.link, null);
+    watching = { ...shared, frames, link };
+    startReplay(frames, link, null);
   }
 
   function forgetShared() {
     watchToken++;
     watching = null;
     const params = new URLSearchParams(location.search);
-    if (!params.has("r")) return;
+    if (!params.has("r") && !params.has("s")) return;
     params.delete("r");
+    params.delete("s");
     const rest = params.toString();
     history.replaceState(null, "", location.pathname + (rest ? `?${rest}` : "") + location.hash);
   }
@@ -2437,8 +2513,9 @@
 
   readPalette();
   fit();
-  const sharedLink = new URLSearchParams(location.search).get("r");
-  if (sharedLink) watchShared(sharedLink);
+  const params = new URLSearchParams(location.search);
+  if (params.get("s")) watchShared({ id: params.get("s") });
+  else if (params.get("r")) watchShared({ packed: params.get("r") });
   else reset();
   if (document.hidden) setPaused(true);
   requestAnimationFrame(loop);

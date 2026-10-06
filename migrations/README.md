@@ -9,6 +9,7 @@ the next number.
 | File | What it does |
 |---|---|
 | `001_uwutetris_schema.sql` | The `uwutetris_` tables, the best score and total points views, and the submit and prune functions. |
+| `002_uwutetris_replays.sql` | `uwutetris_replays`, which holds the games behind short replay links. |
 
 Every table has row level security on with no policies. Only the service role
 key, used by the Vercel functions in `main-site/api/`, can read or write.
