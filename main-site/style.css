@@ -557,6 +557,87 @@ h1, h2 { font-weight: normal; }
   gap: 8px;
   flex-shrink: 0;
 }
+.tray { display: flex; flex-shrink: 0; }
+.tray-tab { display: none; }
+
+/* ---- full screen: the topbar's buttons as sg-psi's floating tray ----
+   A column of glass buttons top right with an arrow tab beside it.
+   Collapsed, the buttons slide off the right edge and the tab is left
+   peeking out. js/fullscreen.js sets body.fullscreen and body.tray-open. */
+body {
+  --glass-btn: 44px;
+  --hud-top: max(14px, calc(env(safe-area-inset-top) + 14px));
+  --hud-edge: max(16px, calc(env(safe-area-inset-right) + 16px));
+}
+body.fullscreen .brand { display: none; }
+body.fullscreen .topbar {
+  position: fixed;
+  z-index: 800; /* over the game, under the modals */
+  top: var(--hud-top);
+  right: 0;
+  padding: 0;
+  pointer-events: none;
+}
+body.fullscreen .tray {
+  --tray-shift: calc(var(--glass-btn) + 8px + var(--hud-edge));
+  align-items: flex-start;
+  gap: 8px;
+  pointer-events: auto;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+body.fullscreen .tray.collapsed { transform: translateX(var(--tray-shift)); }
+body.fullscreen .tray-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: var(--glass-btn);
+  border-radius: 12px;
+  background: var(--surface);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid var(--surface-border);
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  transition: border-radius 0.22s ease;
+}
+.tray-tab > [data-icon] { display: inline-flex; }
+.tray-tab svg {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.22s ease;
+}
+/* At the edge it is a tab, flat on the side the screen cuts off. */
+body.fullscreen .tray.collapsed .tray-tab { border-radius: 12px 0 0 12px; border-right: none; }
+body.fullscreen .tray.collapsed .tray-tab svg { transform: rotate(180deg); }
+body.fullscreen .topbar-actions {
+  flex-direction: column;
+  margin-right: var(--hud-edge);
+  transition: opacity 0.22s ease;
+}
+body.fullscreen .tray.collapsed .topbar-actions { opacity: 0; }
+body.fullscreen .topbar-actions .icon-btn {
+  width: var(--glass-btn);
+  height: var(--glass-btn);
+  background: var(--surface);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  box-shadow: var(--shadow);
+}
+body.fullscreen .topbar-actions .icon-btn:hover { background: var(--surface-strong); }
+body.fullscreen .topbar-actions .icon-btn svg { width: 22px; height: 22px; }
+
+/* The topbar's row is free for the board: --topbar-h is what it took, less
+   the padding the game gains on top in its place. */
+body.fullscreen { --topbar-h: 56px; }
+body.fullscreen .game { padding-top: max(var(--pad-x), env(safe-area-inset-top)); }
+
+/* Where the game would run under the tray, it makes room for it: the open
+   column, or the arrow tab alone. script.js fits the board to what is left. */
+@media (max-width: 920px) {
+  body.fullscreen.tray-open .game { padding-right: calc(24px + 8px + var(--glass-btn) + var(--hud-edge) + 8px); }
+  body.fullscreen:not(.tray-open) .game { padding-right: 36px; }
+}
 
 .game {
   --side-w: 300px;
@@ -565,7 +646,7 @@ h1, h2 { font-weight: normal; }
   --mini-cell: 16px;
   --chrome-h: 100px;
   --replay-h: 0px; /* the replay bar, while it is showing and not in the pad's place */
-  --board-h: clamp(240px, calc(100dvh - var(--chrome-h) - var(--replay-h)), 600px);
+  --board-h: clamp(240px, calc(100dvh - var(--chrome-h) - var(--replay-h) + var(--topbar-h, 0px)), 600px);
 
   display: grid;
   /* --side-w is the side column's minimum; it takes whatever the board,
@@ -1023,6 +1104,13 @@ body.versus .controls-card { display: none; }
   .brand-icon { width: 28px; height: 28px; border-radius: 7px; }
   .app-title { font-size: 1.15rem; }
   .topbar-actions { gap: 6px; }
+
+  body {
+    --glass-btn: 40px;
+    --hud-top: max(10px, calc(env(safe-area-inset-top) + 10px));
+    --hud-edge: max(10px, calc(env(safe-area-inset-right) + 10px));
+  }
+  body.fullscreen { --topbar-h: 52px; }
 
   .game {
     --side-w: 84px;

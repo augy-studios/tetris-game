@@ -24,6 +24,7 @@ const ASSETS = [
   "/js/settings.js",
   "/js/leaderboard.js",
   "/js/ranked.js",
+  "/js/fullscreen.js",
   // Versus. PeerJS itself is left to the network (STUN-p2p-spec.md): pairing
   // needs it anyway, and an old signalling client is worse than none.
   "/js/versus.js",

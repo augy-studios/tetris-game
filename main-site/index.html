@@ -71,19 +71,30 @@
             <img class="brand-icon" src="/XTT-main.png" alt="" width="32" height="32">
             <h1 class="app-title">Tetris Game</h1>
         </div>
-        <div class="topbar-actions">
-            <button class="icon-btn" id="versusBtn" type="button" aria-label="Play someone nearby">
-                <span data-icon="users"></span>
+        <!-- In full screen, sg-psi's floating tray: these buttons as a glass
+             column top right, which slides off the right edge and leaves the
+             arrow tab to bring it back (js/fullscreen.js). -->
+        <div class="tray" id="tray">
+            <button id="trayTab" class="tray-tab" type="button" aria-controls="trayButtons" aria-expanded="true" aria-label="Hide menu">
+                <span data-icon="chevronRight"></span>
             </button>
-            <button class="icon-btn" id="boardBtn" type="button" aria-label="Leaderboard">
-                <span data-icon="trophy"></span>
-            </button>
-            <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings">
-                <span data-icon="settings"></span>
-            </button>
-            <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme">
-                <span data-icon="sun"></span>
-            </button>
+            <div class="topbar-actions" id="trayButtons">
+                <button class="icon-btn" id="versusBtn" type="button" aria-label="Play someone nearby" title="Play someone nearby">
+                    <span data-icon="users"></span>
+                </button>
+                <button class="icon-btn" id="boardBtn" type="button" aria-label="Leaderboard" title="Leaderboard">
+                    <span data-icon="trophy"></span>
+                </button>
+                <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
+                    <span data-icon="settings"></span>
+                </button>
+                <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme" title="Theme">
+                    <span data-icon="sun"></span>
+                </button>
+                <button class="icon-btn" id="fullscreenBtn" type="button" aria-label="Full screen" title="Full screen (F)" hidden>
+                    <span data-icon="expand"></span>
+                </button>
+            </div>
         </div>
     </header>
 
@@ -195,6 +206,7 @@
                     <li><kbd class="kbd">↑</kbd> or <kbd class="kbd">X</kbd> rotate right, <kbd class="kbd">Z</kbd> rotate left</li>
                     <li><kbd class="kbd">C</kbd> or <kbd class="kbd">Shift</kbd> hold</li>
                     <li><kbd class="kbd">P</kbd> or <kbd class="kbd">Esc</kbd> pause, <kbd class="kbd">R</kbd> restart</li>
+                    <li><kbd class="kbd">F</kbd> full screen</li>
                 </ul>
             </section>
         </aside>

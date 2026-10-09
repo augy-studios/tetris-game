@@ -1,5 +1,5 @@
 // Page wiring: the theme modal (uwuapps-theme.md, section 6), settings, the
-// leaderboards, versus, the instant replay and the update bar. The game
+// leaderboards, versus, full screen, the instant replay and the update bar. The game
 // itself lives in /script.js; it reads the theme tokens and announces each
 // game's start and end.
 
@@ -10,6 +10,7 @@ import { getSettings, initSettings } from "./settings.js";
 import { initLeaderboard } from "./leaderboard.js";
 import { initRanked } from "./ranked.js";
 import { initVersus } from "./versus.js";
+import { initFullscreen } from "./fullscreen.js";
 
 function buildThemeModal() {
   const grid = document.getElementById("swatchGrid");
@@ -112,6 +113,7 @@ function boot() {
   initRanked();
   initVersus({ joinCode: takeParam("join") });
   initUpdateBar();
+  initFullscreen();
 
   // The instant replay: the game just finished plays back by itself, unless
   // Settings says not to. Watch replay on the game over screen still opens it.
