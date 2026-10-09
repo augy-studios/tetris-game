@@ -40,22 +40,25 @@ path there; the instant replay of your own game shows the moves you made.
 ## Versus
 
 Per `STUN-p2p-spec.md` (`js/net.js` is its reference module): STUN only, no
-TURN relay, so **both devices have to be on the same network**, the same
-wifi or one sharing a hotspot with the other. PeerJS loads from cdnjs only
-when somebody hosts or joins, and is never cached.
+TURN relay, so **every device has to be on the same network**, the same
+wifi or a hotspot one of them shares. PeerJS loads from cdnjs only when
+somebody hosts or joins, and is never cached.
 
-One device hosts and shows a code, a link (`/?join=CODE`) and a QR code; the
-other joins. Both play their own board from the host's seed. Clearing 2, 3
-or 4 lines sends 1, 2 or 4 rows of garbage, which first cancels garbage on
-its way to you; garbage lands when you next lock a piece without clearing a
-line. The first to top out loses. The host runs the match (`js/versus.js`);
-each device sends its board 20 times a second, with garbage as a running
-total so a lost message costs nothing. While a match is on, the opponent's
-board is recorded on your game's clock, so the instant replay plays it back
-beside yours.
+One device hosts and shows a code, a link (`/?join=CODE`) and a QR code; up
+to seven others join, **eight players at most**. Each plays their own board
+from the host's seed. Clearing 2, 3 or 4 lines sends 1, 2 or 4 rows of
+garbage to another player still in, picked at random, after first
+cancelling garbage on its way to you; garbage lands when you next lock a
+piece without clearing a line. The last one standing wins. The host runs
+the match (`js/versus.js`): each guest sends its board to the host 20 times
+a second and the host sends every board to every guest, with garbage as a
+running total per player so a lost message costs nothing. A guest that
+drops keeps its seat and its board while the match is played. While a match
+is on, the other boards are recorded on your game's clock, so the instant
+replay plays them back beside yours.
 
 Matches are ranked, each board's game on its own. The server cannot tell
 garbage a real opponent sent from garbage a log made up, so **a row with
 garbage in it scores nothing and counts as no line** (it still counts as
 attack). Made-up garbage then only gets in the way, and the server checks a
-match's log without knowing the other board.
+match's log without knowing the other boards.

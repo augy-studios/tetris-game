@@ -878,22 +878,50 @@ h1, h2 { font-weight: normal; }
 #replayPlay[data-playing="true"] .replay-icon-play { display: none; }
 #replayPlay[data-playing="true"] .replay-icon-pause { display: inline-flex; }
 
-/* ---- versus: the other board, and pairing ---- */
+/* ---- versus: the other boards, and pairing ---- */
 .opp-card { grid-column: 1 / -1; }
 .opp-body {
   display: flex;
   align-items: flex-start;
   gap: 12px;
 }
-.opp-board {
+.opp-boards {
   --opp-cell: 9px;
-  display: block;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, calc(10 * var(--opp-cell)));
+  gap: 8px 6px;
   flex: none;
+}
+.opp-seat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  transition: opacity 0.2s ease;
+}
+.opp-seat[data-state="away"] { opacity: 0.6; }
+.opp-seat[data-state="out"] { opacity: 0.35; }
+.opp-board {
+  display: block;
   width: calc(10 * var(--opp-cell));
   height: calc(20 * var(--opp-cell));
   border-radius: 8px;
   border: 1px solid var(--surface-border);
 }
+.opp-name {
+  overflow: hidden;
+  font-size: 0.7rem;
+  color: var(--muted-strong);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.opp-name:empty { display: none; }
+/* Against more than one, the boards go smaller and take the card's width,
+   with the words under them. */
+.opp-card.many .opp-body { flex-direction: column; gap: 8px; }
+.opp-card.many .opp-boards { --opp-cell: 6px; flex: auto; align-self: stretch; }
+.opp-card.many .opp-board { border-radius: 5px; }
 .opp-text {
   display: flex;
   flex-direction: column;
@@ -922,7 +950,7 @@ h1, h2 { font-weight: normal; }
 [data-tone="warn"] > .net-dot { background: var(--warn); }
 [data-tone="error"] > .net-dot { background: var(--error); }
 
-/* The opponent's card takes the controls card's room. */
+/* The opponents' card takes the controls card's room. */
 body.versus .controls-card { display: none; }
 
 .vs-choose,
@@ -1014,11 +1042,14 @@ body.versus .controls-card { display: none; }
   .controls-card { display: none; }
   .next-list { gap: 6px; }
 
-  /* A narrow column: the other board goes small and on its own, under three
-     next pieces rather than five. */
+  /* A narrow column: the other boards go small and on their own, under three
+     next pieces rather than five; two abreast against more than one. */
   .opp-card { order: 4; }
   .opp-body { flex-direction: column; gap: 6px; }
-  .opp-board { --opp-cell: 6px; }
+  .opp-boards { --opp-cell: 6px; }
+  .opp-card.many .opp-boards { --opp-cell: 3px; gap: 6px 4px; }
+  .opp-card.many .opp-board { border-radius: 3px; }
+  .opp-name { font-size: 0.65rem; }
   .opp-text { font-size: 0.75rem; }
   body.versus .next-list canvas:nth-child(n + 4) { display: none; }
 }

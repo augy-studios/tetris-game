@@ -103,7 +103,8 @@
   const holdCanvas = $("hold");
   const nextList = $("next");
   const nextCanvases = [...nextList.querySelectorAll("canvas")];
-  const oppCanvas = $("oppBoard");
+  const oppCard = $("oppCard");
+  const oppBoards = $("oppBoards");
   const pauseBtn = document.querySelector('.pad-btn[data-act="pause"]');
   const stats = { score: $("score"), level: $("level"), lines: $("lines") };
   const overlay = {
@@ -470,8 +471,9 @@
   }
 
   // A new game, dealt from the seed given or from a fresh random one. In a
-  // match, matchId is the match's and the seed is the host's.
-  function reset(chosen = "", matchId = 0) {
+  // match, matchId is the match's, the seed is the host's and seat is this
+  // board's.
+  function reset(chosen = "", matchId = 0, seat = 0) {
     chosenSeed = chosen !== "";
     seed = chosenSeed ? chosen : randomSeed();
     deal = dealer(seed);
@@ -497,10 +499,10 @@
     autoplay = false;
     assisted = false;
     countdownEnd = 0;
-    match = matchId ? { id: matchId, result: null, why: "" } : null;
+    match = matchId ? { id: matchId, seat, result: null, why: "" } : null;
     incoming = 0;
-    received = 0;
-    sent = 0;
+    received = new Array(SEATS).fill(0);
+    sent = new Array(SEATS).fill(0);
     garbageHoles = seededRandom(`${seed}/garbage`);
     releaseAll();
     hideOverlay();
@@ -873,33 +875,43 @@
   }
 
   /* -- Versus --
-     js/versus.js pairs this device with another on the same network and
-     drives these through window.uwuTetris. Each device plays its own board
-     from the host's seed. Lines cleared send garbage to the other board,
-     first cancelling any on its way here, and the first board to top out
-     loses. Each board's game is ranked on its own like any other; rows with
-     garbage in them score nothing (removeFullRows), so the leaderboard can
-     check a match's log without knowing the other board. */
+     js/versus.js pairs this device with up to seven others on the same
+     network and drives these through window.uwuTetris. Each device plays its
+     own board from the host's seed. Lines cleared send garbage to another
+     board still in, picked at random, first cancelling any on its way here,
+     and the last board standing wins. Each board's game is ranked on its own
+     like any other; rows with garbage in them score nothing (removeFullRows),
+     so the leaderboard can check a match's log without knowing the others. */
 
-  let versus = false; // with another device, from the first match until leaving
-  let match = null; // { id, result, why } for a match game; null alone
+  const SEATS = 8; // players in a match at most, the host's seat 0
+
+  let versus = false; // with other devices, from the first match until leaving
+  let match = null; // { id, seat, result, why } for a match game; null alone
   let countdownEnd = 0; // performance.now() a match's countdown ends; 0 when none
   let incoming = 0; // garbage rows on the way, landing with the next lock that clears nothing
-  let received = 0; // of the other board's running total, the rows counted into incoming
-  let sent = 0; // rows sent to the other board this match, a running total
+  let received = []; // by seat, of each board's running total sent here, the rows counted into incoming
+  let sent = []; // by seat, rows sent to each board this match, a running total
   let garbageHoles = null; // where each load's gap goes: the seed's, so a replay agrees
-  let opponent = null; // the other board, as it last arrived
-  let oppTrail = []; // this match's other board over time: { t, view }
+  // The other boards, as they last arrived: { seat, out, away } and, once
+  // one has arrived, the board's snapshot fields.
+  let opponents = [];
+  let oppTrail = []; // this match's other boards over time: { t, views }
 
-  // A cleared line first cancels garbage on its way here, then goes to the
-  // other board. A lock that clears nothing takes all that is waiting, and
+  // A board this one's garbage can go to.
+  const inMatch = (v) => v.match === match?.id && !v.over && !v.out;
+
+  // A cleared line first cancels garbage on its way here, then goes to
+  // another board. A lock that clears nothing takes all that is waiting, and
   // true means it pushed the stack off the top.
   function exchangeGarbage(cleared) {
     if (cleared) {
       const attack = ATTACK[cleared];
       const cancel = Math.min(incoming, attack);
       incoming -= cancel;
-      sent += attack - cancel;
+      const targets = opponents.filter(inMatch);
+      if (attack > cancel && targets.length) {
+        sent[targets[Math.floor(Math.random() * targets.length)].seat] += attack - cancel;
+      }
       return false;
     }
     if (!incoming) return false;
@@ -910,10 +922,11 @@
     return addGarbage(board, rows, hole);
   }
 
-  // Both devices start the match's game at once, after the countdown.
-  function startMatch(id, matchSeed, delay) {
+  // Every device starts the match's game at once, after the countdown. seat
+  // is this board's in the match.
+  function startMatch(id, matchSeed, delay, seat) {
     versus = true;
-    reset(matchSeed, id);
+    reset(matchSeed, id, seat);
     if (delay > 0) {
       countdownEnd = performance.now() + delay;
       showOverlay("countdown");
@@ -931,16 +944,16 @@
     if (replay?.source?.match === match) prepareLink(replay);
   }
 
-  // Leaving the other device. A match still being played ends there, and
+  // Leaving the other devices. A match still being played ends there, and
   // the next game is a game alone.
   function endVersus() {
     versus = false;
     if (match && !over) setMatchResult("none", "You left the match.");
     else if (overlayKind === "over") showOverlay("over");
-    setOpponent(null);
+    setOpponents([]);
   }
 
-  // This board as the other device draws it.
+  // This board as the other devices draw it.
   function snapshot() {
     return {
       match: match?.id ?? 0,
@@ -948,38 +961,39 @@
       cur: cur && !over ? [cur.type, cur.r, cur.x, cur.y] : null,
       score,
       lines,
-      sent,
+      sent: [...sent],
       over,
     };
   }
 
-  // The other board's running total of garbage sent; what is new is on its way.
-  function setOpponentSent(total) {
-    if (!match || over || total <= received) return;
-    incoming += total - received;
-    received = total;
-    dirty = true;
-  }
+  // What tells one moment of the other boards from the next, in a replay.
+  const viewsKey = (views) =>
+    views.map((v) => `${v.seat}${v.out ? 1 : 0}${v.over ? 1 : 0}${v.cells}${v.cur}${v.score}`).join("|");
 
-  // Kept on this game's clock while the match is played, so the replay can
-  // show the other board as it stood at each moment, beside this one.
-  function setOpponent(view) {
-    opponent = view;
-    if (view && match && !over && view.match === match.id) {
+  // The other boards, in seat order. Of each one's running total of garbage
+  // sent to this seat, what is new is on its way. Kept on this game's clock
+  // while the match is played, so the replay can show the others as they
+  // stood at each moment, beside this one.
+  function setOpponents(views) {
+    opponents = views;
+    if (match && !over) {
+      for (const v of views) {
+        if (v.match !== match.id) continue;
+        const total = v.sent[match.seat];
+        if (total <= received[v.seat]) continue;
+        incoming += total - received[v.seat];
+        received[v.seat] = total;
+        dirty = true;
+      }
       const t = Math.round(clock - gameStart);
       const last = oppTrail[oppTrail.length - 1];
-      const same =
-        last &&
-        last.view.cells === view.cells &&
-        String(last.view.cur) === String(view.cur) &&
-        last.view.score === view.score;
-      if (last && last.t === t) last.view = view;
-      else if (!same) oppTrail.push({ t, view });
+      if (last && last.t === t) last.views = views;
+      else if (!last || viewsKey(last.views) !== viewsKey(views)) oppTrail.push({ t, views });
     }
-    if (!replay?.opp) drawOpponent();
+    if (!replay?.opp) drawOpponents();
   }
 
-  // The other board at time t of a replay: the last that had arrived by then.
+  // The other boards at time t of a replay: the last that had arrived by then.
   function opponentAt(trail, t) {
     let lo = 0;
     let hi = trail.length - 1;
@@ -1196,7 +1210,7 @@
   }
 
   // source is the game to pack into a link: { log, seed, match }. opp is a
-  // match's other board over time, shown in its card in step with this one.
+  // match's other boards over time, shown in their card in step with this one.
   function startReplay(frames, link, source, opp = null) {
     const r = {
       frames,
@@ -1246,7 +1260,7 @@
     dirty = true;
     drawMinis();
     updateStats();
-    drawOpponent(); // back to the other board as it is now
+    drawOpponents(); // back to the other boards as they are now
     if (backToOverlay) showOverlay(watching ? "shared" : "over");
   }
 
@@ -1283,7 +1297,7 @@
       const k = opponentAt(replay.opp, t);
       if (replay.oppShown !== k) {
         replay.oppShown = k;
-        drawOpponent();
+        drawOpponents();
       }
     }
     put(replayUI.time, `${clockText(t)} / ${clockText(total)}`);
@@ -1786,7 +1800,7 @@
     const line = `Score ${end.score.toLocaleString()}, ${end.lines} ${end.lines === 1 ? "line" : "lines"}.`;
     if (!(watching.flags & 1)) return line;
     const result = (watching.flags >> 1) & 3;
-    return `${line} ${result === 1 ? "Won a match" : result === 2 ? "Lost a match" : "A match"} against another device.`;
+    return `${line} ${result === 1 ? "Won a match" : result === 2 ? "Lost a match" : "A match"} against devices nearby.`;
   }
 
   /* -- Drawing -- */
@@ -1805,7 +1819,7 @@
     };
     dirty = true;
     drawMinis();
-    drawOpponent();
+    drawOpponents();
   }
 
   function roundedRect(c, x, y, w, h, r) {
@@ -1963,35 +1977,76 @@
     c.fillRect(x * size + 0.5, y * size + 0.5, size - 1, size - 1);
   }
 
-  // The other device's board, small, in its card, with its score. Hidden
-  // outside versus. In a match's replay, the board as it stood at that
-  // moment of the replay; otherwise as it is now.
-  function drawOpponent() {
-    if (!oppCanvas) return;
-    let view = opponent;
+  // One small board in the opponents' card, a canvas and its caption.
+  function oppSlot() {
+    const slot = document.createElement("figure");
+    slot.className = "opp-seat";
+    const cv = document.createElement("canvas");
+    cv.className = "opp-board";
+    cv.setAttribute("role", "img");
+    const caption = document.createElement("figcaption");
+    caption.className = "opp-name";
+    slot.append(cv, caption);
+    return slot;
+  }
+
+  // The other devices' boards, small, in their card. Hidden outside versus.
+  // Against one, its score beside it; against more, each captioned with its
+  // player and score, and dimmed once out. In a match's replay, the boards
+  // as they stood at that moment of the replay; otherwise as they are now.
+  function drawOpponents() {
+    if (!oppBoards) return;
+    let views = opponents;
+    let ready = true;
     if (replay?.opp) {
       const k = opponentAt(replay.opp, replay.t);
-      view = k < 0 ? null : replay.opp[k].view;
+      ready = k >= 0;
+      // Before the first arrived, the seats with nothing on them yet.
+      views = ready ? replay.opp[k].views : replay.opp[0].views.map(({ seat }) => ({ seat }));
     }
-    const info = $("oppInfo");
-    const text = view
-      ? `Score ${view.score.toLocaleString()}, ${view.lines} ${view.lines === 1 ? "line" : "lines"}`
-      : replay?.opp
-        ? "Getting ready"
-        : "Waiting for a match";
-    if (info.textContent !== text) info.textContent = text;
+    // An empty board while there is nobody to show.
+    if (!views.length) views = [{ seat: -1 }];
+    const many = views.length > 1;
+    const shown = views.filter((v) => v.cells);
 
+    let text = !ready ? "Getting ready" : "Waiting for a match";
+    if (!many && shown.length) {
+      const v = shown[0];
+      text = `Score ${v.score.toLocaleString()}, ${v.lines} ${v.lines === 1 ? "line" : "lines"}`;
+    } else if (many && ready && shown.length && (match || replay?.opp)) {
+      text = `${views.filter((v) => !v.out && !v.over).length} of ${views.length} still in`;
+    }
+    put($("oppInfo"), text);
+    put($("oppTitle"), many ? "Opponents" : "Opponent");
+    oppCard.classList.toggle("many", many);
+
+    while (oppBoards.children.length < views.length) oppBoards.append(oppSlot());
+    while (oppBoards.children.length > views.length) oppBoards.lastElementChild.remove();
+
+    views.forEach((view, i) => {
+      const slot = oppBoards.children[i];
+      const cv = slot.firstElementChild;
+      const name = view.seat >= 0 ? `Player ${view.seat + 1}` : "Opponent";
+      const state = view.out || view.over ? "out" : view.away ? "away" : "";
+      if (slot.dataset.state !== state) slot.dataset.state = state;
+      put(slot.lastElementChild, many ? `P${view.seat + 1}${view.cells ? ` ${view.score.toLocaleString()}` : ""}` : "");
+      attr(cv, "aria-label", `${name}'s board${state === "out" ? ", out" : state === "away" ? ", disconnected" : ""}`);
+      drawSmallBoard(cv, view);
+    });
+  }
+
+  function drawSmallBoard(cv, view) {
     if (!palette) return;
-    const w = oppCanvas.clientWidth;
-    const h = oppCanvas.clientHeight;
+    const w = cv.clientWidth;
+    const h = cv.clientHeight;
     if (!w || !dpr) return;
-    if (oppCanvas.width !== Math.round(w * dpr)) setBuffer(oppCanvas, w, h);
-    const c = oppCanvas.getContext("2d");
+    if (cv.width !== Math.round(w * dpr)) setBuffer(cv, w, h);
+    const c = cv.getContext("2d");
     const size = w / COLS;
     c.clearRect(0, 0, w, h);
     c.fillStyle = palette.board;
     c.fillRect(0, 0, w, h);
-    if (!view) return;
+    if (!view.cells) return;
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         const type = view.cells[y * COLS + x];
@@ -2034,13 +2089,13 @@
       canvas.style.width = `${COLS * tile}px`;
       canvas.style.height = `${ROWS * tile}px`;
       setBuffer(canvas, COLS * tile, ROWS * tile);
-      if (oppCanvas) oppCanvas.width = 0; // drawOpponent sizes it afresh
+      for (const cv of oppBoards?.querySelectorAll("canvas") ?? []) cv.width = 0; // drawOpponents sizes them afresh
       dirty = true;
     }
 
     for (const cv of [holdCanvas, ...nextCanvases]) setBuffer(cv, cv.clientWidth, cv.clientHeight);
     drawMinis();
-    drawOpponent();
+    drawOpponents();
   }
 
   /* -- Loop -- */
@@ -2487,8 +2542,7 @@
     setMatchResult,
     endVersus,
     snapshot,
-    setOpponentSent,
-    setOpponent,
+    setOpponents,
     matchId: () => match?.id ?? 0,
     matchLive: () => Boolean(match && !over),
     newSeed: randomSeed,

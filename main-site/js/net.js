@@ -12,7 +12,7 @@ const PEERJS_URL = "https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.4/peerjs.m
 const PEER_PREFIX = "uwutetris-";
 const CODE_ALPHABET = "BCDFGHJKLMNPQRSTVWXYZ23456789";
 export const CODE_LENGTH = 6;
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 const CONNECT_TIMEOUT_MS = 15000;
 
 // STUN only. Supplying `config` replaces PeerJS's default, which includes a
@@ -163,15 +163,12 @@ export class Host extends Connection {
 
     this.peer.on("open", () => this.refreshStatus());
     this.peer.on("connection", (link) => {
-      if (this.maxGuests === 1) {
-        // The newcomer replaces the incumbent.
-        for (const old of [...this.links.values()]) this.drop(old);
-      } else if (this.links.size >= this.maxGuests) {
-        link.on("open", () => {
-          link.send({ type: "full" });
-          link.close({ flush: true });
-        });
-        return;
+      // With one seat the newcomer replaces the incumbent. With more, a guest
+      // back under the stable id it passes in metadata.player replaces its
+      // old link, which may not have noticed it is dead yet.
+      const id = link.metadata?.player;
+      for (const old of [...this.links.values()]) {
+        if (this.maxGuests === 1 || (id && old.metadata?.player === id)) this.drop(old);
       }
       this.bindLink(link);
     });
@@ -186,7 +183,13 @@ export class Host extends Connection {
     });
   }
 
+  // Counted on open, not on connection: links still opening hold no seat.
   onLinkOpen(link) {
+    if (this.links.size >= this.maxGuests) {
+      link.send({ type: "full" });
+      link.close({ flush: true });
+      return;
+    }
     this.links.set(link.peer, link);
     this.dispatchEvent(new CustomEvent("join", { detail: { id: link.peer, metadata: link.metadata } }));
     this.refreshStatus();
@@ -209,6 +212,13 @@ export class Host extends Connection {
   drop(link) {
     this.links.delete(link.peer);
     link.close();
+  }
+
+  dropGuest(id) {
+    const link = this.links.get(id);
+    if (!link) return;
+    this.drop(link);
+    this.refreshStatus();
   }
 
   dropAll() {

@@ -173,11 +173,11 @@
                 </div>
             </section>
 
-            <!-- Versus only: the other device's board, from js/versus.js. -->
+            <!-- Versus only: the other devices' boards, one each, drawn by script.js. -->
             <section class="card glass opp-card" id="oppCard" aria-labelledby="oppTitle" hidden>
                 <h2 class="card-title" id="oppTitle">Opponent</h2>
                 <div class="opp-body">
-                    <canvas class="opp-board" id="oppBoard" role="img" aria-label="Opponent's board"></canvas>
+                    <div class="opp-boards" id="oppBoards"></div>
                     <div class="opp-text">
                         <p class="opp-info" id="oppInfo"></p>
                         <p class="opp-status" id="oppStatus" data-tone="busy">
@@ -286,15 +286,15 @@
                 </button>
             </div>
             <p class="mode-note vs-intro">
-                Both devices have to be on the same network: the same wifi, or one sharing a hotspot with the other.
-                You play the same pieces, and lines you clear push garbage up the other board. The first to top out loses.
+                Up to eight devices on the same network: the same wifi, or a hotspot one of them shares.
+                Everyone plays the same pieces, and lines you clear push garbage up another board. The last one standing wins.
                 Matches are ranked, but rows with garbage in them score nothing.
             </p>
 
             <div class="vs-choose" id="vsChoose">
                 <button class="btn btn-primary pill" id="vsHostBtn" type="button"><span data-icon="users"></span>Host a match</button>
                 <form class="vs-join" id="vsJoinForm" autocomplete="off">
-                    <label for="vsJoinInput" class="modal-section-label">Or join with the code on the other screen</label>
+                    <label for="vsJoinInput" class="modal-section-label">Or join with the code on the host's screen</label>
                     <div class="name-form">
                         <input id="vsJoinInput" class="field vs-code-field" type="text" placeholder="Code" maxlength="12"
                             spellcheck="false" autocapitalize="characters" autocorrect="off" enterkeyhint="go">
