@@ -5,8 +5,10 @@
 // is a per-browser convenience, so storage failing only means it opens again
 // next time.
 //
-// The installed app may already run full screen (the manifest asks for it).
-// It gets the tray too, but no button: there is no full screen to leave.
+// The manifest no longer launches the installed app full screen, because a
+// launch-time full screen cannot be left from the page. An install made before
+// that change may still run that way until the browser picks up the new
+// manifest; it gets the tray too, but no button: there is no full screen to leave.
 
 import { hydrateIcons } from "./ui.js";
 

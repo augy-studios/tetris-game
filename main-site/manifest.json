@@ -30,7 +30,7 @@
     "theme_color": "#cfc",
     "background_color": "#cfc",
     "display": "standalone",
-    "display_override": ["fullscreen", "minimal-ui", "window-controls-overlay"],
+    "display_override": ["minimal-ui", "window-controls-overlay"],
     "orientation": "any",
     "id": "tetris",
     "dir": "ltr",
