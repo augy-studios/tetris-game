@@ -518,14 +518,16 @@ h1, h2 { font-weight: normal; }
    the board, so the board fits the viewport without scrolling.
    ========================================================================== */
 
+/* The brand line: the logo and the name, and nothing else. It stays in full
+   screen too, so the triple tap on it still works there. The top takes the
+   notch's inset where the page runs under one (viewport-fit=cover), and the
+   board's height (.game) gives that much back. */
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   max-width: 720px;
   margin: 0 auto;
-  padding: 14px;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) 14px max(14px, env(safe-area-inset-left, 0px));
 }
 .brand {
   display: flex;
@@ -551,47 +553,53 @@ h1, h2 { font-weight: normal; }
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.tray { display: flex; flex-shrink: 0; }
-.tray-tab { display: none; }
+/* ==========================================================================
+   Edge tray (edge-tray-spec.md). The app's buttons as a column of glass
+   buttons top right, with an arrow tab beside it. Collapsed, the column
+   slides off the right edge and only the tab is left, flush with it.
+   js/tray.js sets .collapsed and body.tray-open.
+   ========================================================================== */
 
-/* ---- full screen: the topbar's buttons as sg-psi's floating tray ----
-   A column of glass buttons top right with an arrow tab beside it.
-   Collapsed, the buttons slide off the right edge and the tab is left
-   peeking out. js/fullscreen.js sets body.fullscreen and body.tray-open. */
-body {
+:root {
   --glass-btn: 44px;
-  --hud-top: max(14px, calc(env(safe-area-inset-top) + 14px));
-  --hud-edge: max(16px, calc(env(safe-area-inset-right) + 16px));
+  --edge: max(16px, calc(env(safe-area-inset-right, 0px) + 16px));
+  /* Level with the brand line, and under the update bar while it shows
+     (js/update.js publishes its height as --banner-h). */
+  --tray-top: max(calc(var(--banner-h, 0px) + 14px), calc(env(safe-area-inset-top, 0px) + 14px));
+  --tray-time: 0.34s;
+  --tray-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-body.fullscreen .brand { display: none; }
-body.fullscreen .topbar {
+
+/* Fixed top right. Lets clicks through except on its children. */
+.hud-right {
   position: fixed;
-  z-index: 800; /* over the game, under the modals */
-  top: var(--hud-top);
+  z-index: 40; /* over the game, under the modals (50) */
+  top: var(--tray-top);
   right: 0;
-  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   pointer-events: none;
+  transition: top 0.2s ease; /* glides as the update bar comes or goes */
 }
-body.fullscreen .tray {
-  --tray-shift: calc(var(--glass-btn) + 8px + var(--hud-edge));
+.hud-right > * { pointer-events: auto; }
+
+.tray {
+  --tray-shift: calc(var(--glass-btn) + 8px + var(--edge));
+  display: flex;
   align-items: flex-start;
   gap: 8px;
-  pointer-events: auto;
-  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: transform var(--tray-time) var(--tray-ease);
 }
-body.fullscreen .tray.collapsed { transform: translateX(var(--tray-shift)); }
-body.fullscreen .tray-tab {
+.tray.collapsed { transform: translateX(var(--tray-shift)); }
+
+.tray-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 24px;
   height: var(--glass-btn);
+  padding: 0;
   border-radius: 12px;
   background: var(--surface);
   backdrop-filter: blur(18px) saturate(150%);
@@ -599,44 +607,110 @@ body.fullscreen .tray-tab {
   border: 1px solid var(--surface-border);
   box-shadow: var(--shadow);
   color: var(--ink);
-  transition: border-radius 0.22s ease;
+  cursor: pointer;
+  transition: border-radius var(--tray-time) var(--tray-ease);
 }
 .tray-tab > [data-icon] { display: inline-flex; }
-.tray-tab svg {
-  width: 16px;
-  height: 16px;
-  transition: transform 0.22s ease;
-}
-/* At the edge it is a tab, flat on the side the screen cuts off. */
-body.fullscreen .tray.collapsed .tray-tab { border-radius: 12px 0 0 12px; border-right: none; }
-body.fullscreen .tray.collapsed .tray-tab svg { transform: rotate(180deg); }
-body.fullscreen .topbar-actions {
+.tray-tab svg { width: 16px; height: 16px; transition: transform var(--tray-time) var(--tray-ease); }
+/* At the edge it is a tab: flat on the side the screen cuts off. */
+.tray.collapsed .tray-tab { border-radius: 12px 0 0 12px; border-right: none; }
+.tray.collapsed .tray-tab svg { transform: rotate(180deg); }
+
+.tray-buttons {
+  display: flex;
   flex-direction: column;
-  margin-right: var(--hud-edge);
-  transition: opacity 0.22s ease;
+  align-items: center;
+  gap: 8px;
+  margin-right: var(--edge);
 }
-body.fullscreen .tray.collapsed .topbar-actions { opacity: 0; }
-body.fullscreen .topbar-actions .icon-btn {
+
+.glass-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: var(--glass-btn);
   height: var(--glass-btn);
+  padding: 0;
+  border-radius: 14px;
   background: var(--surface);
   backdrop-filter: blur(18px) saturate(150%);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid var(--surface-border);
   box-shadow: var(--shadow);
+  color: var(--ink);
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, color 0.15s ease;
 }
-body.fullscreen .topbar-actions .icon-btn:hover { background: var(--surface-strong); }
-body.fullscreen .topbar-actions .icon-btn svg { width: 22px; height: 22px; }
+.glass-btn:hover { transform: translateY(-1px); background: var(--surface-strong); }
+.glass-btn > [data-icon] { display: inline-flex; }
+.glass-btn svg { width: 22px; height: 22px; }
 
-/* The topbar's row is free for the board: --topbar-h is what it took, less
-   the padding the game gains on top in its place. */
-body.fullscreen { --topbar-h: 56px; }
-body.fullscreen .game { padding-top: max(var(--pad-x), env(safe-area-inset-top)); }
+/* The buttons unroll: each fades in, slides back from the edge and grows,
+   18 ms after the one above it. They move by `translate` and `scale`, leaving
+   `transform` to the hover lift, so the list repeats the hover transitions.
+   After .glass-btn, so it wins. */
+.tray-buttons > * {
+  transition:
+    opacity calc(var(--tray-time) * 0.8) ease,
+    translate var(--tray-time) var(--tray-ease),
+    scale var(--tray-time) var(--tray-ease),
+    transform 0.15s ease,
+    background 0.15s ease,
+    color 0.15s ease;
+  /* Only opening is staggered: the delay comes from the state being entered. */
+  transition-delay: calc(var(--i, 0) * 18ms), calc(var(--i, 0) * 18ms), calc(var(--i, 0) * 18ms), 0s, 0s, 0s;
+}
+.tray-buttons > :nth-child(2) { --i: 1; }
+.tray-buttons > :nth-child(3) { --i: 2; }
+.tray-buttons > :nth-child(4) { --i: 3; }
+.tray-buttons > :nth-child(5) { --i: 4; }
+.tray-buttons > :nth-child(6) { --i: 5; }
+.tray-buttons > :nth-child(7) { --i: 6; }
+/* Add more nth-child lines if the tray holds more than seven buttons. */
+.tray.collapsed .tray-buttons > * {
+  opacity: 0;
+  translate: 12px 0; /* towards the edge it leaves by */
+  scale: 0.85;
+  transition-delay: 0s; /* collapsing, they all go at once */
+}
 
-/* Where the game would run under the tray, it makes room for it: the open
-   column, or the arrow tab alone. script.js fits the board to what is left. */
+/* Keeping the game clear of the tray. On a wide screen the 720px column never
+   reaches it. Below that the column makes room for the open tray's buttons,
+   and collapsed it takes the full width with the tab floating over its edge;
+   only the brand line, level with the tab, steps in to clear it. The open
+   tab sits beside the brand line, which is why the game clears only the
+   buttons. script.js refits the board as the padding moves. */
+.game,
+.topbar {
+  transition: padding-right var(--tray-time) var(--tray-ease),
+              padding-left var(--tray-time) var(--tray-ease);
+}
 @media (max-width: 920px) {
-  body.fullscreen.tray-open .game { padding-right: calc(24px + 8px + var(--glass-btn) + var(--hud-edge) + 8px); }
-  body.fullscreen:not(.tray-open) .game { padding-right: 36px; }
+  body.tray-open .game { padding-right: calc(var(--glass-btn) + var(--edge) + 12px); }
+  /* The tab, 24px wide, and a 10px gap. */
+  body:not(.tray-open) .topbar { padding-right: calc(24px + 10px); }
+}
+
+/* A returning user who left the tray collapsed: the stored state, before first
+   paint and with no transitions (index.html's head script). The body ships as
+   tray-open, so the game's padding is put back here too. js/tray.js removes
+   the class a frame after it has set the real state. */
+.tray-start-collapsed .tray { transform: translateX(var(--tray-shift)); transition: none; }
+.tray-start-collapsed .tray-buttons > * { opacity: 0; translate: 12px 0; scale: 0.85; transition: none; }
+.tray-start-collapsed .game,
+.tray-start-collapsed .topbar { transition: none; }
+.tray-start-collapsed .tray-tab { border-radius: 12px 0 0 12px; border-right: none; }
+.tray-start-collapsed .tray-tab svg { transform: rotate(180deg); }
+@media (max-width: 920px) {
+  .tray-start-collapsed body.tray-open .game { padding-right: max(var(--pad-x), env(safe-area-inset-right, 0px)); }
+  .tray-start-collapsed .topbar { padding-right: calc(24px + 10px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-right, .tray, .tray-tab, .tray-tab svg, .tray-buttons > *, .glass-btn, .game, .topbar {
+    transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
+  }
 }
 
 .game {
@@ -644,9 +718,9 @@ body.fullscreen .game { padding-top: max(var(--pad-x), env(safe-area-inset-top))
   --gap: 12px;
   --pad-x: 14px;
   --mini-cell: 16px;
-  --chrome-h: 100px;
+  --chrome-h: 90px; /* the brand line is 60px of it */
   --replay-h: 0px; /* the replay bar, while it is showing and not in the pad's place */
-  --board-h: clamp(240px, calc(100dvh - var(--chrome-h) - var(--replay-h) + var(--topbar-h, 0px)), 600px);
+  --board-h: clamp(240px, calc(100dvh - var(--chrome-h) - var(--replay-h) - env(safe-area-inset-top, 0px)), 600px);
 
   display: grid;
   /* --side-w is the side column's minimum; it takes whatever the board,
@@ -656,7 +730,11 @@ body.fullscreen .game { padding-top: max(var(--pad-x), env(safe-area-inset-top))
   gap: var(--gap);
   max-width: 720px;
   margin: 0 auto;
-  padding: 0 var(--pad-x) max(var(--pad-x), env(safe-area-inset-bottom));
+  padding:
+    0
+    max(var(--pad-x), env(safe-area-inset-right, 0px))
+    max(var(--pad-x), env(safe-area-inset-bottom, 0px))
+    max(var(--pad-x), env(safe-area-inset-left, 0px));
 }
 
 /* script.js sizes the canvas to whole tiles inside this box. */
@@ -1089,7 +1167,7 @@ body.versus .controls-card { display: none; }
 /* Touch screens: the pad and the board's gestures replace the keyboard
    legend and its hints. */
 @media (pointer: coarse) {
-  .game { --chrome-h: 222px; }
+  .game { --chrome-h: 212px; }
   .game.replaying { --replay-h: 24px; } /* in the pad's room, and a little more */
   .pad { display: grid; }
   .touch-hint { display: block; }
@@ -1099,25 +1177,24 @@ body.versus .controls-card { display: none; }
 
 /* ---- phones ---- */
 @media (max-width: 480px) {
-  .topbar { padding: 10px; }
+  .topbar { padding: calc(10px + env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 10px max(10px, env(safe-area-inset-left, 0px)); }
   .brand { gap: 8px; }
   .brand-icon { width: 28px; height: 28px; border-radius: 7px; }
   .app-title { font-size: 1.15rem; }
-  .topbar-actions { gap: 6px; }
 
-  body {
+  /* The tray's top follows the brand line's 10px here. */
+  :root {
     --glass-btn: 40px;
-    --hud-top: max(10px, calc(env(safe-area-inset-top) + 10px));
-    --hud-edge: max(10px, calc(env(safe-area-inset-right) + 10px));
+    --edge: max(10px, calc(env(safe-area-inset-right, 0px) + 10px));
+    --tray-top: max(calc(var(--banner-h, 0px) + 10px), calc(env(safe-area-inset-top, 0px) + 10px));
   }
-  body.fullscreen { --topbar-h: 52px; }
 
   .game {
     --side-w: 84px;
     --gap: 8px;
     --pad-x: 10px;
     --mini-cell: 12px;
-    --chrome-h: 84px;
+    --chrome-h: 70px; /* the brand line is 48px of it */
   }
 
   .side { grid-template-columns: 1fr; }
@@ -1143,5 +1220,5 @@ body.versus .controls-card { display: none; }
 }
 
 @media (max-width: 480px) and (pointer: coarse) {
-  .game { --chrome-h: 196px; }
+  .game { --chrome-h: 182px; }
 }

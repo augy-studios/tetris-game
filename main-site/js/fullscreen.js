@@ -1,18 +1,13 @@
-// Full screen, from the topbar's button or F. In full screen the brand goes
-// and the topbar's buttons become sg-psi's floating tray: a glass column top
-// right with an arrow tab beside it, which slides off the right edge to leave
-// the board the room. The tray is open until somebody closes it; that choice
-// is a per-browser convenience, so storage failing only means it opens again
-// next time.
+// Full screen, from the tray's button or F. The layout stays as it is: the
+// brand line and the tray (js/tray.js) are there in full screen too, and the
+// board grows into the height the browser's bars gave up.
 //
 // The manifest no longer launches the installed app full screen, because a
 // launch-time full screen cannot be left from the page. An install made before
 // that change may still run that way until the browser picks up the new
-// manifest; it gets the tray too, but no button: there is no full screen to leave.
+// manifest; it gets no button there: there is no full screen to leave.
 
 import { hydrateIcons } from "./ui.js";
-
-const TRAY_KEY = "uwutetris.trayOpen";
 
 const $ = (id) => document.getElementById(id);
 const root = document.documentElement;
@@ -37,28 +32,8 @@ async function toggle() {
   }
 }
 
-function setTray(open, { save = true } = {}) {
-  $("tray").classList.toggle("collapsed", !open);
-  $("trayTab").setAttribute("aria-expanded", String(open));
-  $("trayTab").setAttribute("aria-label", open ? "Hide menu" : "Show menu");
-  document.body.classList.toggle("tray-open", open);
-  sync();
-  if (!save) return;
-  try {
-    localStorage.setItem(TRAY_KEY, open ? "1" : "0");
-  } catch {
-    // Remembered for this page view only.
-  }
-}
-
-// The page's look for whether it is full screen now.
+// The button for whether it is full screen now.
 function sync() {
-  const full = Boolean(element()) || appFullscreen.matches;
-  const open = !$("tray").classList.contains("collapsed");
-  document.body.classList.toggle("fullscreen", full);
-  // Off screen buttons must not take focus.
-  $("trayButtons").inert = full && !open;
-
   const btn = $("fullscreenBtn");
   btn.hidden = !supported() || (appFullscreen.matches && !element());
   const label = element() ? "Leave full screen" : "Full screen";
@@ -73,15 +48,8 @@ function sync() {
 }
 
 export function initFullscreen() {
-  let open = true;
-  try {
-    open = localStorage.getItem(TRAY_KEY) !== "0";
-  } catch {
-    // Open, the default.
-  }
-  setTray(open, { save: false });
+  sync();
 
-  $("trayTab").addEventListener("click", () => setTray($("tray").classList.contains("collapsed")));
   $("fullscreenBtn").addEventListener("click", toggle);
   document.addEventListener("fullscreenchange", sync);
   document.addEventListener("webkitfullscreenchange", sync);

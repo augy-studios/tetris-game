@@ -21,7 +21,7 @@
 
     <meta charset="utf-8">
     <title>Tetris Game | UwU Apps</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="description" content="Play Tetris free on your phone or computer, with touch controls, hold and a ghost piece. Climb the best score and total points leaderboards, and play offline.">
 
     <meta property="og:type" content="website">
@@ -52,6 +52,16 @@
         })();
     </script>
 
+    <!-- The edge tray's stored state before first paint, so a tray left
+         collapsed does not slide shut on load. Keep the key in step with
+         TRAY_KEY in js/tray.js. -->
+    <script>
+        try {
+            if (localStorage.getItem("uwutetris.trayOpen") === "0")
+                document.documentElement.classList.add("tray-start-collapsed");
+        } catch (e) {}
+    </script>
+
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">
     <link rel="stylesheet" href="/style.css">
     <meta name="theme-color" content="#ccffcc" />
@@ -65,36 +75,41 @@
     <meta property="og:image" content="/XTT-main.png" />
 </head>
 
-<body>
-    <header class="topbar">
-        <div class="brand">
-            <img class="brand-icon" src="/XTT-main.png" alt="" width="32" height="32">
-            <h1 class="app-title">Tetris Game</h1>
-        </div>
-        <!-- In full screen, sg-psi's floating tray: these buttons as a glass
-             column top right, which slides off the right edge and leaves the
-             arrow tab to bring it back (js/fullscreen.js). -->
+<body class="tray-open">
+    <!-- The edge tray (edge-tray-spec.md): the app's buttons as a glass column
+         top right, with an arrow tab that slides them off the right edge and
+         brings them back (js/tray.js). Ships open; the head script and
+         js/tray.js apply the stored state. -->
+    <div class="hud-right">
         <div class="tray" id="tray">
             <button id="trayTab" class="tray-tab" type="button" aria-controls="trayButtons" aria-expanded="true" aria-label="Hide menu">
                 <span data-icon="chevronRight"></span>
             </button>
-            <div class="topbar-actions" id="trayButtons">
-                <button class="icon-btn" id="versusBtn" type="button" aria-label="Play someone nearby" title="Play someone nearby">
+            <div class="tray-buttons" id="trayButtons">
+                <button class="glass-btn" id="versusBtn" type="button" aria-haspopup="dialog" aria-label="Play someone nearby" title="Play someone nearby">
                     <span data-icon="users"></span>
                 </button>
-                <button class="icon-btn" id="boardBtn" type="button" aria-label="Leaderboard" title="Leaderboard">
+                <button class="glass-btn" id="boardBtn" type="button" aria-haspopup="dialog" aria-label="Leaderboard" title="Leaderboard">
                     <span data-icon="trophy"></span>
                 </button>
-                <button class="icon-btn" id="settingsBtn" type="button" aria-label="Settings" title="Settings">
+                <button class="glass-btn" id="settingsBtn" type="button" aria-haspopup="dialog" aria-label="Settings" title="Settings">
                     <span data-icon="settings"></span>
                 </button>
-                <button class="icon-btn" id="themeBtn" type="button" aria-label="Theme" title="Theme">
+                <button class="glass-btn" id="themeBtn" type="button" aria-haspopup="dialog" aria-label="Theme" title="Theme">
                     <span data-icon="sun"></span>
                 </button>
-                <button class="icon-btn" id="fullscreenBtn" type="button" aria-label="Full screen" title="Full screen (F)" hidden>
+                <button class="glass-btn" id="fullscreenBtn" type="button" aria-label="Full screen" title="Full screen (F)" hidden>
                     <span data-icon="expand"></span>
                 </button>
             </div>
+        </div>
+    </div>
+
+    <!-- The brand line: the logo and the name, nothing else. -->
+    <header class="topbar">
+        <div class="brand">
+            <img class="brand-icon" src="/XTT-main.png" alt="" width="32" height="32">
+            <h1 class="app-title">Tetris Game</h1>
         </div>
     </header>
 

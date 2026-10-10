@@ -65,6 +65,14 @@ function render() {
     bar = buildBar();
     document.body.prepend(bar);
     bar.getBoundingClientRect(); // commit the hidden state so the reveal animates
+    // The edge tray starts below the bar (edge-tray-spec.md §6.3). The bar is
+    // hidden rather than removed, so this watches for the life of the page,
+    // following its height as it opens and closes.
+    if ("ResizeObserver" in window) {
+      new ResizeObserver(([entry]) => {
+        document.documentElement.style.setProperty("--banner-h", `${entry.target.offsetHeight}px`);
+      }).observe(bar);
+    }
   }
 
   bar.classList.toggle("hidden", !show);

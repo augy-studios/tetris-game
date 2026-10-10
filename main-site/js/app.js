@@ -1,5 +1,5 @@
 // Page wiring: the theme modal (uwuapps-theme.md, section 6), settings, the
-// leaderboards, versus, full screen, the instant replay and the update bar. The game
+// leaderboards, versus, the edge tray, full screen, the instant replay and the update bar. The game
 // itself lives in /script.js; it reads the theme tokens and announces each
 // game's start and end.
 
@@ -10,6 +10,7 @@ import { getSettings, initSettings } from "./settings.js";
 import { initLeaderboard } from "./leaderboard.js";
 import { initRanked } from "./ranked.js";
 import { initVersus } from "./versus.js";
+import { initTray } from "./tray.js";
 import { initFullscreen } from "./fullscreen.js";
 
 function buildThemeModal() {
@@ -113,6 +114,7 @@ function boot() {
   initRanked();
   initVersus({ joinCode: takeParam("join") });
   initUpdateBar();
+  initTray();
   initFullscreen();
 
   // The instant replay: the game just finished plays back by itself, unless
